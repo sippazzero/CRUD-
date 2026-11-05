@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     worker_max_attempts: int = 5
     worker_backoff_base_seconds: float = 5.0
     worker_backoff_max_seconds: float = 300.0
+    sender_timeout_seconds: float = 10.0
+    sender_max_attempts: int = 5
+    sender_lease_seconds: int = 300
+    mock_failure_rate: float = 0.0
+    mock_hang_rate: float = 0.0
+    mock_hang_seconds: float = 15.0
+    mock_duplicate_mode: bool = False
+    mock_api_url: str = "http://api:8000/webhooks/helpdesk"
 
     @field_validator("llm_api_key", mode="before")
     @classmethod

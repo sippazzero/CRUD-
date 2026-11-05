@@ -63,7 +63,7 @@ WHERE id IN (
 RETURNING *;
 ```
 
-For delivery, use the corresponding eligibility condition for `approved` rows and `sending` rows whose lease has expired. Set a lease deadline when claiming work, and renew it during long operations. If a worker crashes, an expired lease makes the job eligible for another claim. Persist retry scheduling (`next_attempt_at`) and attempt counts in PostgreSQL so restart does not lose queued or delayed work. Clear or expire a lease when scheduling a retry. Keep external calls outside the row-claim transaction.
+For delivery, claim due `approved` rows in a short transaction, change them to `sending`, and commit before the HTTP call. Keep `delivery_attempts` separate from draft-generation `attempts`. An expired `sending` lease returns the ticket to `approved`; a later claim reuses its stable idempotency key and receives a new lease. Final state writes must match the status, delivery attempt, and lease deadline captured by the claim so a stale response cannot overwrite a newer owner. Persist retry scheduling (`next_attempt_at`) and attempt counts in PostgreSQL so restart does not lose queued or delayed work. Clear or expire a lease when scheduling a retry. Keep external calls outside the row-claim transaction.
 
 ## Knowledge base and draft generation
 
@@ -83,7 +83,7 @@ Render the operator interface with server-side Jinja2 templates. Show tickets wi
 
 The worker atomically claims an `approved` ticket by changing it to `sending` before making the outbound request. Send the persisted approved draft to `reply_url` as JSON with the ticket ID and message, and include an `Idempotency-Key` stable for that ticket (for example, `reply:<ticket_id>`). Apply a finite timeout. Retry timeouts and 5xx responses with exponential backoff and jitter, reusing the same key; do not automatically retry permanent 4xx responses. Treat `201 Created` as success and then atomically record `sent`.
 
-Atomic local claims prevent concurrent workers from intentionally sending the same ticket at once. They cannot by themselves provide exactly-once delivery across PostgreSQL and an independent HTTP service: the process can lose the response or crash after the helpdesk accepts a reply but before `sent` is committed. In that case, retrying is safe only if the receiver durably deduplicates the stable `Idempotency-Key` and returns the original result. The mock must implement that contract. Without receiver-side idempotency, the strongest honest guarantee is at-least-once attempts with a residual duplicate-delivery risk; exactly-once external side effects cannot be guaranteed by a local transaction.
+Atomic local claims prevent concurrent workers from intentionally sending the same ticket at once. They cannot by themselves provide exactly-once delivery across PostgreSQL and an independent HTTP service: the process can lose the response or crash after the helpdesk accepts a reply but before `sent` is committed. In that case, retrying is safe only if the receiver durably deduplicates the stable `Idempotency-Key` and returns the original result. The mock records a reply before its configurable post-processing hang or 5xx fault and supports duplicate-webhook mode for exercising event idempotency. Without receiver-side idempotency, the strongest honest guarantee is at-least-once attempts with a residual duplicate-delivery risk; exactly-once external side effects cannot be guaranteed by a local transaction.
 
 ## Health and operational expectations
 

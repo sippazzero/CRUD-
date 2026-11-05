@@ -9,6 +9,7 @@ from datetime import timedelta
 from typing import Protocol
 from uuid import UUID
 
+import httpx
 from sqlalchemy import func, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -18,8 +19,14 @@ from app.logging_config import configure_logging
 from app.models import KnowledgeArticle, Ticket
 from app.services.knowledge import find_relevant_articles
 from app.services.llm import GeneratedDraft, LLMClient
-from app.services.queue import claim_next, recover_stuck
+from app.services.queue import (
+    claim_for_delivery,
+    claim_next,
+    recover_stuck,
+    recover_stuck_sending,
+)
 from app.services.rate_limit import PostgresTokenBucket
+from app.services.sender import send_reply
 
 configure_logging(get_settings().log_level)
 logger: logging.Logger = logging.getLogger(__name__)
@@ -68,15 +75,54 @@ async def process_next(
     settings: Settings,
     *,
     uniform: Uniform = random.uniform,
+    helpdesk_client: httpx.AsyncClient | None = None,
 ) -> bool:
     """Claim and process one ticket, persisting every durable state transition."""
+    async with session_factory() as session:
+        recovered = await recover_stuck_sending(
+            session,
+            max_attempts=settings.sender_max_attempts,
+        )
+    for delivery in recovered:
+        logger.warning(
+            "Delivery lease recovered",
+            extra={
+                "ticket_id": delivery.ticket_id,
+                "attempt": delivery.attempts,
+                "status": delivery.status,
+            },
+        )
+
     async with session_factory() as session:
         ticket = await claim_next(
             session,
             lease=timedelta(seconds=settings.worker_lease_seconds),
         )
         if ticket is None:
-            return False
+            delivery = await claim_for_delivery(
+                session,
+                lease=timedelta(seconds=settings.sender_lease_seconds),
+            )
+            if delivery is None:
+                return False
+
+            logger.info(
+                "Ticket transition",
+                extra={
+                    "ticket_id": delivery.ticket_id,
+                    "attempt": delivery.attempts,
+                    "status": "sending",
+                },
+            )
+            await send_reply(
+                session_factory=session_factory,
+                ticket=delivery,
+                settings=settings,
+                client=helpdesk_client,
+                uniform=uniform,
+            )
+            return True
+
         ticket_id = ticket.ticket_id
         ticket_pk: UUID = ticket.id
         message = ticket.message
@@ -206,6 +252,7 @@ async def worker_loop(
     generator: DraftGenerator,
     limiter: RequestLimiter,
     settings: Settings,
+    helpdesk_client: httpx.AsyncClient,
 ) -> None:
     """Continuously recover expired leases and process due tickets."""
     while not stop_event.is_set():
@@ -222,7 +269,13 @@ async def worker_loop(
                     },
                 )
 
-            if await process_next(session_factory, generator, limiter, settings):
+            if await process_next(
+                session_factory,
+                generator,
+                limiter,
+                settings,
+                helpdesk_client=helpdesk_client,
+            ):
                 continue
         except asyncio.CancelledError:
             raise
@@ -254,33 +307,35 @@ async def main() -> None:
 
     generator = LLMClient(settings)
     limiter = PostgresTokenBucket(SessionFactory)
-    tasks = [
-        asyncio.create_task(
-            worker_loop(
-                worker_number,
-                stop_event,
-                SessionFactory,
-                generator,
-                limiter,
-                settings,
-            ),
-            name=f"ticket-worker-{worker_number}",
+    async with httpx.AsyncClient(follow_redirects=False) as helpdesk_client:
+        tasks = [
+            asyncio.create_task(
+                worker_loop(
+                    worker_number,
+                    stop_event,
+                    SessionFactory,
+                    generator,
+                    limiter,
+                    settings,
+                    helpdesk_client,
+                ),
+                name=f"ticket-worker-{worker_number}",
+            )
+            for worker_number in range(settings.worker_concurrency)
+        ]
+        logger.info(
+            "Worker service started",
+            extra={"worker_count": settings.worker_concurrency},
         )
-        for worker_number in range(settings.worker_concurrency)
-    ]
-    logger.info(
-        "Worker service started",
-        extra={"worker_count": settings.worker_concurrency},
-    )
-    try:
-        await stop_event.wait()
-    finally:
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        await generator.close()
-        await engine.dispose()
-        logger.info("Worker service stopped")
+        try:
+            await stop_event.wait()
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+    await generator.close()
+    await engine.dispose()
+    logger.info("Worker service stopped")
 
 
 if __name__ == "__main__":
