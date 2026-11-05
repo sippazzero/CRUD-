@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Перевірка відповідей · Зоря</title>
+    <style>
+        :root {
+            color-scheme: light;
+            font-family: system-ui, sans-serif;
+            color: #202b36;
+            background: #f3f5f6;
+        }
+        body { margin: 0; }
+        main { width: min(100% - 2rem, 64rem); margin: 2rem auto; }
+        h1 { margin-bottom: .5rem; font-size: 1.75rem; }
+        .intro, .ticket-meta, .citations { color: #526170; }
+        .ticket { margin-top: 1.25rem; padding: 1.25rem; background: #fff; border: 1px solid #d5dce1; }
+        .ticket h2 { margin: 0 0 .75rem; font-size: 1rem; }
+        .message { white-space: pre-wrap; overflow-wrap: anywhere; }
+        label { display: block; margin: 1rem 0 .4rem; font-weight: 650; }
+        textarea { box-sizing: border-box; width: 100%; min-height: 8rem; padding: .75rem; border: 1px solid #8a98a5; font: inherit; }
+        .actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: .75rem; }
+        button { min-height: 2.75rem; padding: .5rem 1rem; border: 1px solid transparent; font: inherit; font-weight: 650; cursor: pointer; }
+        button:focus-visible, textarea:focus-visible { outline: 3px solid #195c85; outline-offset: 2px; }
+        .approve { color: #fff; background: #175c45; }
+        .reject { color: #7b2626; background: #fff; border-color: #9d4646; }
+        .error { padding: .75rem; color: #762424; background: #fff0ef; border-left: 4px solid #a93c35; }
+        .empty { margin-top: 1.5rem; padding: 1rem; background: #fff; border: 1px solid #d5dce1; }
+        @media (max-width: 480px) {
+            main { width: min(100% - 1rem, 64rem); margin: 1rem auto; }
+            .ticket { padding: 1rem; }
+            .actions button { flex: 1 1 100%; }
+        }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Чернетки відповідей</h1>
+    <p class="intro">Перевірте відповідь і джерела перед надсиланням клієнту.</p>
+    {% if error %}
+        <p class="error" role="alert">{{ error }}</p>
+    {% endif %}
+    {% for ticket in tickets %}
+        <article class="ticket">
+            <p class="ticket-meta">Звернення {{ ticket.ticket_id }} · Статус: {{ ticket.status }}</p>
+            <h2>Повідомлення клієнта</h2>
+            <p class="message">{{ ticket.message }}</p>
+            <form method="post" action="/operator/approve/{{ ticket.id }}">
+                <label for="draft-{{ ticket.id }}">Чернетка відповіді</label>
+                <textarea id="draft-{{ ticket.id }}" name="draft_text" required>{{ ticket.draft_text or "" }}</textarea>
+                <div class="actions">
+                    <button class="approve" type="submit">Підтвердити й надіслати</button>
+                </div>
+            </form>
+            <div class="citations">
+                <strong>Статті бази знань:</strong>
+                {% if ticket.cited_article_slugs %}
+                    <ul>
+                    {% for slug in ticket.cited_article_slugs %}
+                        <li>{{ slug }}</li>
+                    {% endfor %}
+                    </ul>
+                {% else %}
+                    <p>Джерела не знайдено.</p>
+                {% endif %}
+            </div>
+            <form method="post" action="/operator/reject/{{ ticket.id }}">
+                <button class="reject" type="submit">Відхилити</button>
+            </form>
+        </article>
+    {% else %}
+        <p class="empty" role="status">Немає чернеток, що очікують перевірки.</p>
+    {% endfor %}
+</main>
+</body>
+</html>
