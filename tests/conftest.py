@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from app.models import Ticket
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, text
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -28,6 +29,20 @@ TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", _DEFAULT_TEST_DATABASE_URL)
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 
+@pytest_asyncio.fixture(loop_scope="session")
+async def api_client() -> AsyncIterator[AsyncClient]:
+    """Exercise the FastAPI app in-process while retaining real database I/O."""
+    from app.main import app
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        timeout=2,
+    ) as client:
+        yield client
+
+
 @pytest.fixture(scope="session", autouse=True)
 def migrate_test_database() -> None:
     """Apply the schema once so integration tests always use the current contract."""
@@ -44,6 +59,7 @@ async def postgres_engine(
     migrate_test_database: None,
 ) -> AsyncIterator[AsyncEngine]:
     """Share a real PostgreSQL engine after the session migration completes."""
+    assert migrate_test_database is None
     engine = create_async_engine(TEST_DATABASE_URL, pool_pre_ping=True)
     try:
         async with engine.connect() as connection:

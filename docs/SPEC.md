@@ -15,7 +15,7 @@ Run all components with Docker Compose. Configure secrets and service settings t
 
 ## Webhook acceptance and idempotency
 
-`POST /webhooks/helpdesk` validates the request body, then persists the event and its initial `received` ticket state in one database transaction. It performs no LLM work and no outbound HTTP call. Return `200` after the transaction commits, comfortably within the helpdesk's two-second deadline. A duplicate `event_id`, including a concurrent duplicate, is a successful no-op and also receives `200`.
+`POST /webhooks/helpdesk` validates the request body, then persists the event and its initial `new` ticket state in one database transaction. It performs no LLM work and no outbound HTTP call. Return `200` after the transaction commits, comfortably within the helpdesk's two-second deadline. A duplicate `event_id`, including a concurrent duplicate, is a successful no-op and also receives `200`.
 
 Enforce a database unique constraint on `event_id`; use `INSERT ... ON CONFLICT DO NOTHING` rather than a read-before-insert check. If persistence fails, return an error rather than acknowledge unpersisted work, allowing the helpdesk to retry. The database is the durable source of truth; an accepted event must not exist only in process memory.
 
@@ -24,12 +24,12 @@ Enforce a database unique constraint on `event_id`; use `INSERT ... ON CONFLICT 
 The normal path is:
 
 ```text
-received -> generating -> draft_ready -> approved -> sending -> sent
+new -> generating -> draft_ready -> approved -> sending -> sent
                                      \-> rejected
                  processing/delivery exhaustion -> failed
 ```
 
-- `received`: durably accepted and ready for generation.
+- `new`: durably accepted and ready for generation.
 - `generating`: leased to a worker while knowledge retrieval and draft generation run.
 - `draft_ready`: draft and its knowledge references are persisted for review.
 - `approved`: operator approved the current draft; eligible for delivery.
@@ -53,7 +53,7 @@ WHERE id IN (
     FROM tickets
     WHERE available_at <= now()
       AND (
-          (status = 'received' AND (locked_until IS NULL OR locked_until < now()))
+          (status = 'new' AND (locked_until IS NULL OR locked_until < now()))
           OR (status = 'generating' AND locked_until < now())
       )
     ORDER BY created_at

@@ -88,8 +88,8 @@ class Ticket(Base):
     status: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
-        default="received",
-        server_default=text("'received'"),
+        default="new",
+        server_default=text("'new'"),
     )
     attempts: Mapped[int] = mapped_column(
         Integer,
