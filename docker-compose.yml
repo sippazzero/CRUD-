@@ -57,6 +57,9 @@ services:
       WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-5}
       WORKER_BACKOFF_BASE_SECONDS: ${WORKER_BACKOFF_BASE_SECONDS:-5}
       WORKER_BACKOFF_MAX_SECONDS: ${WORKER_BACKOFF_MAX_SECONDS:-300}
+      SENDER_TIMEOUT_SECONDS: ${SENDER_TIMEOUT_SECONDS:-10}
+      SENDER_MAX_ATTEMPTS: ${SENDER_MAX_ATTEMPTS:-5}
+      SENDER_LEASE_SECONDS: ${SENDER_LEASE_SECONDS:-300}
     depends_on:
       db:
         condition: service_healthy
@@ -77,6 +80,15 @@ services:
       ]
     ports:
       - "${HELPDESK_MOCK_PORT:-8001}:8001"
+    environment:
+      MOCK_FAILURE_RATE: ${MOCK_FAILURE_RATE:-0}
+      MOCK_HANG_RATE: ${MOCK_HANG_RATE:-0}
+      MOCK_HANG_SECONDS: ${MOCK_HANG_SECONDS:-15}
+      MOCK_DUPLICATE_MODE: ${MOCK_DUPLICATE_MODE:-false}
+      MOCK_API_URL: ${MOCK_API_URL:-http://api:8000/webhooks/helpdesk}
+    depends_on:
+      api:
+        condition: service_started
     restart: unless-stopped
 
 volumes:
