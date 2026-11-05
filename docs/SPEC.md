@@ -51,7 +51,7 @@ SET status = 'generating',
 WHERE id IN (
     SELECT id
     FROM tickets
-    WHERE available_at <= now()
+    WHERE next_attempt_at <= now()
       AND (
           (status = 'new' AND (locked_until IS NULL OR locked_until < now()))
           OR (status = 'generating' AND locked_until < now())
@@ -63,7 +63,7 @@ WHERE id IN (
 RETURNING *;
 ```
 
-For delivery, use the corresponding eligibility condition for `approved` rows and `sending` rows whose lease has expired. Set a lease deadline when claiming work, and renew it during long operations. If a worker crashes, an expired lease makes the job eligible for another claim. Persist retry scheduling (`available_at`) and attempt counts in PostgreSQL so restart does not lose queued or delayed work. Clear or expire a lease when scheduling a retry. Keep external calls outside the row-claim transaction.
+For delivery, use the corresponding eligibility condition for `approved` rows and `sending` rows whose lease has expired. Set a lease deadline when claiming work, and renew it during long operations. If a worker crashes, an expired lease makes the job eligible for another claim. Persist retry scheduling (`next_attempt_at`) and attempt counts in PostgreSQL so restart does not lose queued or delayed work. Clear or expire a lease when scheduling a retry. Keep external calls outside the row-claim transaction.
 
 ## Knowledge base and draft generation
 

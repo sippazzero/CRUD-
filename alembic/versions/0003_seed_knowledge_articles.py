@@ -1,0 +1,106 @@
+"""Seed the fictional Ukrainian product knowledge base."""
+
+from collections.abc import Sequence
+
+import sqlalchemy as sa
+from alembic import op
+from sqlalchemy.dialects.postgresql import insert
+
+revision: str = "0003_seed_knowledge_articles"
+down_revision: str | None = "0002_new_ticket_status_default"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
+
+_ARTICLES: tuple[tuple[str, str, str], ...] = (
+    (
+        "account-setup",
+        "Створення облікового запису",
+        "## Реєстрація\n"
+        "Щоб почати роботу із Зорею, зареєструйтеся за робочою електронною "
+        "адресою та підтвердьте її листом. Після підтвердження відкрийте "
+        "робочий простір і вкажіть назву команди.",
+    ),
+    (
+        "password-recovery",
+        "Відновлення пароля",
+        "## Новий пароль\n"
+        "На сторінці входу натисніть «Забули пароль?», введіть адресу "
+        "облікового запису та відкрийте посилання з листа. Посилання "
+        "діє 30 хвилин; якщо листа немає, перевірте папку спаму.",
+    ),
+    (
+        "export-pdf-report",
+        "Експорт звіту у PDF",
+        "## Завантаження PDF\n"
+        "Відкрийте потрібний звіт у Зорі, натисніть «Експорт» і виберіть "
+        "формат PDF. Великі звіти готуються кілька хвилин; готовий файл "
+        "можна завантажити зі сповіщення.",
+    ),
+    (
+        "import-data",
+        "Імпорт даних",
+        "## Завантаження таблиці\n"
+        "Для імпорту підготуйте CSV-файл із заголовками стовпців, "
+        "виберіть «Дані» → «Імпорт» і завантажте файл. Перед підтвердженням "
+        "перевірте попередній перегляд та повідомлення про помилки.",
+    ),
+    (
+        "notifications",
+        "Налаштування сповіщень",
+        "## Керування листами\n"
+        "Частоту електронних сповіщень можна змінити в профілі у розділі "
+        "«Сповіщення». Окремо налаштовуються системні повідомлення та "
+        "щотижневий підсумок команди.",
+    ),
+    (
+        "billing",
+        "Перегляд рахунків",
+        "## Оплата підписки\n"
+        "Власник робочого простору переглядає план, рахунки та історію "
+        "оплат у розділі «Налаштування» → «Оплата». Зміни платіжних "
+        "реквізитів набувають чинності для наступного рахунку.",
+    ),
+    (
+        "team-access",
+        "Запрошення учасників команди",
+        "## Доступ до простору\n"
+        "Адміністратор може запросити учасника зі сторінки «Команда», "
+        "вказавши його електронну адресу та роль. Запрошення діє сім днів; "
+        "роль можна змінити після приєднання.",
+    ),
+    (
+        "troubleshooting",
+        "Поради з усунення проблем",
+        "## Якщо сторінка не завантажується\n"
+        "Оновіть сторінку, перевірте з'єднання з інтернетом і спробуйте "
+        "відкрити Зорю в актуальному браузері. Якщо проблема лишається, "
+        "збережіть текст помилки та зверніться до підтримки.",
+    ),
+)
+
+
+def upgrade() -> None:
+    """Insert stable article slugs without duplicating existing seed data."""
+    articles = sa.table(
+        "knowledge_articles",
+        sa.column("slug", sa.String()),
+        sa.column("title", sa.String()),
+        sa.column("content", sa.Text()),
+    )
+    statement = insert(articles).values(
+        [
+            {"slug": slug, "title": title, "content": content}
+            for slug, title, content in _ARTICLES
+        ]
+    )
+    op.get_bind().execute(statement.on_conflict_do_nothing(index_elements=["slug"]))
+
+
+def downgrade() -> None:
+    """Remove only the rows owned by this seed migration."""
+    slugs = [slug for slug, _, _ in _ARTICLES]
+    articles = sa.table(
+        "knowledge_articles",
+        sa.column("slug", sa.String()),
+    )
+    op.get_bind().execute(sa.delete(articles).where(articles.c.slug.in_(slugs)))
