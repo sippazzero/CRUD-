@@ -75,11 +75,13 @@ async def test_recover_stuck_ticket_after_lease_expires(
             locked_until=datetime.now(UTC) - timedelta(seconds=1),
         )
         ticket_id = ticket.id
+        external_ticket_id = ticket.ticket_id
         await session.commit()
 
     async with AsyncSession(postgres_engine) as session:
         recovered = await recover_stuck(session)
-    assert recovered == 1
+    assert len(recovered) == 1
+    assert recovered[0] == (external_ticket_id, 0)
 
     async with AsyncSession(postgres_engine) as session:
         ticket = await session.get(Ticket, ticket_id)

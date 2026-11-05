@@ -1,6 +1,8 @@
 """PostgreSQL ticket claiming and expired-lease recovery."""
 
+from dataclasses import dataclass
 from datetime import timedelta
+from uuid import UUID
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,11 +10,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Ticket
 
 
+@dataclass(frozen=True)
+class ClaimedTicket:
+    """Immutable ticket details captured before the claim transaction closes."""
+
+    id: UUID
+    ticket_id: str
+    message: str
+    attempts: int
+
+
 async def claim_next(
     session: AsyncSession,
     *,
     lease: timedelta,
-) -> Ticket | None:
+) -> ClaimedTicket | None:
     """Atomically lease the oldest due ticket that is still new."""
     async with session.begin():
         candidate = await session.scalar(
@@ -37,13 +49,25 @@ async def claim_next(
                 locked_until=func.now() + lease,
                 updated_at=func.now(),
             )
-            .returning(Ticket)
+            .returning(
+                Ticket.id,
+                Ticket.ticket_id,
+                Ticket.message,
+                Ticket.attempts,
+            )
         )
-        return (await session.execute(statement)).scalar_one()
+        claimed = (await session.execute(statement)).one()
+        result = ClaimedTicket(
+            id=claimed.id,
+            ticket_id=claimed.ticket_id,
+            message=claimed.message,
+            attempts=claimed.attempts,
+        )
+    return result
 
 
-async def recover_stuck(session: AsyncSession) -> int:
-    """Return expired generating leases to the due queue and report the count.
+async def recover_stuck(session: AsyncSession) -> list[tuple[str, int]]:
+    """Return expired leases to the queue and identify each recovered ticket.
 
     A time-bounded lease allows PostgreSQL to release row locks before an LLM
     call; holding a transaction lock for that remote call would block other
@@ -62,5 +86,6 @@ async def recover_stuck(session: AsyncSession) -> int:
                 locked_until=None,
                 updated_at=func.now(),
             )
+            .returning(Ticket.ticket_id, Ticket.attempts)
         )
-    return result.rowcount or 0
+    return [(ticket_id, attempts) for ticket_id, attempts in result.all()]

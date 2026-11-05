@@ -1,19 +1,286 @@
-"""Placeholder worker process for the separately deployed queue consumer."""
+"""Concurrent background workers for durable ticket draft generation."""
 
 import asyncio
 import logging
+import random
+import signal
+from collections.abc import Callable
+from datetime import timedelta
+from typing import Protocol
+from uuid import UUID
 
-from app.config import get_settings
+from sqlalchemy import func, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from app.config import Settings, get_settings
+from app.db import SessionFactory, engine
 from app.logging_config import configure_logging
+from app.models import KnowledgeArticle, Ticket
+from app.services.knowledge import find_relevant_articles
+from app.services.llm import GeneratedDraft, LLMClient
+from app.services.queue import claim_next, recover_stuck
+from app.services.rate_limit import PostgresTokenBucket
 
 configure_logging(get_settings().log_level)
 logger: logging.Logger = logging.getLogger(__name__)
 
 
+class DraftGenerator(Protocol):
+    """Contract required by ticket processing for an LLM draft provider."""
+
+    async def generate(
+        self,
+        message: str,
+        articles: list[KnowledgeArticle],
+    ) -> GeneratedDraft:
+        """Return draft text and the stable slugs of its evidence."""
+
+
+class RequestLimiter(Protocol):
+    """Contract for service-wide request throttling."""
+
+    async def acquire(self) -> None:
+        """Wait until the next provider request is permitted."""
+
+
+Uniform = Callable[[float, float], float]
+SessionFactoryType = async_sessionmaker[AsyncSession]
+
+
+def retry_delay(
+    attempt: int,
+    settings: Settings,
+    *,
+    uniform: Uniform = random.uniform,
+) -> float:
+    """Calculate capped exponential backoff with jitter."""
+    exponential = min(
+        settings.worker_backoff_max_seconds,
+        settings.worker_backoff_base_seconds * 2 ** min(attempt - 1, 30),
+    )
+    return uniform(exponential / 2, exponential)
+
+
+async def process_next(
+    session_factory: SessionFactoryType,
+    generator: DraftGenerator,
+    limiter: RequestLimiter,
+    settings: Settings,
+    *,
+    uniform: Uniform = random.uniform,
+) -> bool:
+    """Claim and process one ticket, persisting every durable state transition."""
+    async with session_factory() as session:
+        ticket = await claim_next(
+            session,
+            lease=timedelta(seconds=settings.worker_lease_seconds),
+        )
+        if ticket is None:
+            return False
+        ticket_id = ticket.ticket_id
+        ticket_pk: UUID = ticket.id
+        message = ticket.message
+        attempt = ticket.attempts
+
+    logger.info(
+        "Ticket transition",
+        extra={
+            "ticket_id": ticket_id,
+            "attempt": attempt,
+            "status": "generating",
+        },
+    )
+
+    try:
+        async with session_factory() as session:
+            articles = await find_relevant_articles(session, message)
+        await limiter.acquire()
+        draft = await generator.generate(message, articles)
+    except Exception as error:
+        await _record_failure(
+            session_factory,
+            ticket_pk=ticket_pk,
+            ticket_id=ticket_id,
+            attempt=attempt,
+            error=error,
+            settings=settings,
+            uniform=uniform,
+        )
+        return True
+
+    async with session_factory() as session:
+        async with session.begin():
+            result = await session.execute(
+                update(Ticket)
+                .where(
+                    Ticket.id == ticket_pk,
+                    Ticket.status == "generating",
+                    Ticket.attempts == attempt,
+                )
+                .values(
+                    status="draft_ready",
+                    draft_text=draft.text,
+                    cited_article_slugs=draft.cited_article_slugs,
+                    locked_until=None,
+                    error=None,
+                    updated_at=func.now(),
+                )
+            )
+
+    if result.rowcount:
+        logger.info(
+            "Ticket transition",
+            extra={
+                "ticket_id": ticket_id,
+                "attempt": attempt,
+                "status": "draft_ready",
+                "cited_article_count": len(draft.cited_article_slugs),
+            },
+        )
+    else:
+        logger.warning(
+            "Discarded stale worker result",
+            extra={"ticket_id": ticket_id, "attempt": attempt},
+        )
+    return True
+
+
+async def _record_failure(
+    session_factory: SessionFactoryType,
+    *,
+    ticket_pk: UUID,
+    ticket_id: str,
+    attempt: int,
+    error: Exception,
+    settings: Settings,
+    uniform: Uniform,
+) -> None:
+    """Persist retry timing or terminal failure without overwriting newer work."""
+    terminal = attempt >= settings.worker_max_attempts
+    status = "failed" if terminal else "new"
+    delay = retry_delay(attempt, settings, uniform=uniform)
+    error_text = str(error) or type(error).__name__
+    if settings.llm_api_key:
+        error_text = error_text.replace(settings.llm_api_key, "[REDACTED]")
+
+    async with session_factory() as session:
+        async with session.begin():
+            result = await session.execute(
+                update(Ticket)
+                .where(
+                    Ticket.id == ticket_pk,
+                    Ticket.status == "generating",
+                    Ticket.attempts == attempt,
+                )
+                .values(
+                    status=status,
+                    next_attempt_at=func.now() + timedelta(seconds=delay),
+                    locked_until=None,
+                    error=error_text[:2000],
+                    updated_at=func.now(),
+                )
+            )
+
+    if result.rowcount:
+        logger.warning(
+            "Ticket transition",
+            extra={
+                "ticket_id": ticket_id,
+                "attempt": attempt,
+                "status": status,
+                "error_type": type(error).__name__,
+                "retry_delay_seconds": delay if not terminal else None,
+            },
+        )
+    else:
+        logger.warning(
+            "Ignored stale worker failure",
+            extra={"ticket_id": ticket_id, "attempt": attempt},
+        )
+
+
+async def worker_loop(
+    worker_number: int,
+    stop_event: asyncio.Event,
+    session_factory: SessionFactoryType,
+    generator: DraftGenerator,
+    limiter: RequestLimiter,
+    settings: Settings,
+) -> None:
+    """Continuously recover expired leases and process due tickets."""
+    while not stop_event.is_set():
+        try:
+            async with session_factory() as session:
+                recovered = await recover_stuck(session)
+            for ticket_id, attempt in recovered:
+                logger.warning(
+                    "Ticket lease recovered",
+                    extra={
+                        "ticket_id": ticket_id,
+                        "attempt": attempt,
+                        "status": "new",
+                    },
+                )
+
+            if await process_next(session_factory, generator, limiter, settings):
+                continue
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception(
+                "Worker iteration failed",
+                extra={"worker_number": worker_number},
+            )
+
+        try:
+            await asyncio.wait_for(
+                stop_event.wait(),
+                timeout=settings.worker_poll_seconds,
+            )
+        except TimeoutError:
+            pass
+
+
 async def main() -> None:
-    """Keep the worker container available until queue processing is implemented."""
-    logger.info("Worker process started; queue processing is not implemented yet")
-    await asyncio.Event().wait()
+    """Run configured concurrent workers and stop promptly on container signals."""
+    settings = get_settings()
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for stop_signal in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(stop_signal, stop_event.set)
+        except NotImplementedError:
+            signal.signal(stop_signal, lambda _signum, _frame: stop_event.set())
+
+    generator = LLMClient(settings)
+    limiter = PostgresTokenBucket(SessionFactory)
+    tasks = [
+        asyncio.create_task(
+            worker_loop(
+                worker_number,
+                stop_event,
+                SessionFactory,
+                generator,
+                limiter,
+                settings,
+            ),
+            name=f"ticket-worker-{worker_number}",
+        )
+        for worker_number in range(settings.worker_concurrency)
+    ]
+    logger.info(
+        "Worker service started",
+        extra={"worker_count": settings.worker_concurrency},
+    )
+    try:
+        await stop_event.wait()
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await generator.close()
+        await engine.dispose()
+        logger.info("Worker service stopped")
 
 
 if __name__ == "__main__":

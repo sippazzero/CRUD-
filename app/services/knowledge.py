@@ -13,13 +13,18 @@ async def find_relevant_articles(
     """Return up to three articles ranked by token relevance and trigram overlap."""
     query = func.plainto_tsquery("simple", message)
     full_text_match = KnowledgeArticle.search_vector.bool_op("@@")(query)
-    trigram_match = KnowledgeArticle.content.bool_op("%")(message)
+    title_trigram_match = KnowledgeArticle.title.bool_op("%")(message)
+    content_trigram_match = KnowledgeArticle.content.bool_op("%")(message)
     rank = func.ts_rank_cd(KnowledgeArticle.search_vector, query)
-    similarity = func.similarity(KnowledgeArticle.content, message)
+    title_similarity = func.similarity(KnowledgeArticle.title, message)
+    content_similarity = func.similarity(KnowledgeArticle.content, message)
     statement = (
         select(KnowledgeArticle)
-        .where(or_(full_text_match, trigram_match))
-        .order_by((rank + similarity).desc(), KnowledgeArticle.slug)
+        .where(or_(full_text_match, title_trigram_match, content_trigram_match))
+        .order_by(
+            (rank + title_similarity + content_similarity).desc(),
+            KnowledgeArticle.slug,
+        )
         .limit(3)
     )
     result = await session.scalars(statement)
