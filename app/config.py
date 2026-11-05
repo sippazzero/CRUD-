@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +11,23 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://helpdesk:helpdesk@db:5432/helpdesk"
     log_level: str = "INFO"
+    llm_api_url: str = "https://api.openai.com/v1/chat/completions"
+    llm_model: str = "gpt-4o-mini"
+    llm_api_key: str | None = None
+    llm_static_fallback_enabled: bool = True
+    llm_timeout_seconds: float = 30.0
+    worker_concurrency: int = 2
+    worker_poll_seconds: float = 1.0
+    worker_lease_seconds: int = 120
+    worker_max_attempts: int = 5
+    worker_backoff_base_seconds: float = 5.0
+    worker_backoff_max_seconds: float = 300.0
+
+    @field_validator("llm_api_key", mode="before")
+    @classmethod
+    def normalize_empty_api_key(cls, value: str | None) -> str | None:
+        """Treat an empty Compose environment value as an absent credential."""
+        return value or None
 
     model_config = SettingsConfigDict(
         case_sensitive=False,

@@ -46,6 +46,17 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-helpdesk}:${POSTGRES_PASSWORD:-helpdesk_dev}@db:5432/${POSTGRES_DB:-helpdesk}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LLM_API_URL: ${LLM_API_URL:-https://api.openai.com/v1/chat/completions}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_STATIC_FALLBACK_ENABLED: ${LLM_STATIC_FALLBACK_ENABLED:-true}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-30}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-1}
+      WORKER_LEASE_SECONDS: ${WORKER_LEASE_SECONDS:-120}
+      WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-5}
+      WORKER_BACKOFF_BASE_SECONDS: ${WORKER_BACKOFF_BASE_SECONDS:-5}
+      WORKER_BACKOFF_MAX_SECONDS: ${WORKER_BACKOFF_MAX_SECONDS:-300}
     depends_on:
       db:
         condition: service_healthy

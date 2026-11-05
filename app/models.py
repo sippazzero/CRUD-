@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     Computed,
     DateTime,
+    Float,
     Index,
     Integer,
     String,
@@ -132,4 +133,17 @@ class Ticket(Base):
     sent_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+    )
+
+
+class LLMRateLimitState(Base):
+    """Persisted token-bucket state shared by all worker processes."""
+
+    __tablename__ = "llm_rate_limit_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tokens: Mapped[float] = mapped_column(Float, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
     )

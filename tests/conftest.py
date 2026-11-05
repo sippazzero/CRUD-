@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from app.models import Ticket
+from app.models import LLMRateLimitState, Ticket
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, text
+from sqlalchemy import delete, func, text, update
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
@@ -77,3 +77,21 @@ async def clean_ticket_rows(postgres_engine: AsyncEngine) -> AsyncIterator[None]
     yield
     async with postgres_engine.begin() as connection:
         await connection.execute(delete(Ticket))
+
+
+@pytest_asyncio.fixture(loop_scope="session", autouse=True)
+async def reset_rate_limiter(postgres_engine: AsyncEngine) -> AsyncIterator[None]:
+    """Prevent one rate-limit integration test from delaying unrelated cases."""
+    async with postgres_engine.begin() as connection:
+        await connection.execute(
+            update(LLMRateLimitState)
+            .where(LLMRateLimitState.id == 1)
+            .values(tokens=1, updated_at=func.now())
+        )
+    yield
+    async with postgres_engine.begin() as connection:
+        await connection.execute(
+            update(LLMRateLimitState)
+            .where(LLMRateLimitState.id == 1)
+            .values(tokens=1, updated_at=func.now())
+        )
