@@ -1,5 +1,6 @@
 """Configure host-run integration tests against the published PostgreSQL port."""
 
+import asyncio
 import os
 import subprocess
 import sys
@@ -11,7 +12,7 @@ import pytest_asyncio
 from app.models import LLMRateLimitState, Ticket
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, func, text, update
-from sqlalchemy.engine import URL
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -21,7 +22,7 @@ _DEFAULT_TEST_DATABASE_URL = URL.create(
     password=os.getenv("POSTGRES_PASSWORD", "helpdesk_dev"),
     host="localhost",
     port=int(os.getenv("POSTGRES_PORT", "5432")),
-    database=os.getenv("POSTGRES_DB", "helpdesk"),
+    database=os.getenv("TEST_DATABASE_NAME", "helpdesk_test"),
 ).render_as_string(hide_password=False)
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", _DEFAULT_TEST_DATABASE_URL)
 
@@ -46,12 +47,35 @@ async def api_client() -> AsyncIterator[AsyncClient]:
 @pytest.fixture(scope="session", autouse=True)
 def migrate_test_database() -> None:
     """Apply the schema once so integration tests always use the current contract."""
+    asyncio.run(_ensure_test_database())
     subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         check=True,
         cwd=_PROJECT_ROOT,
         env=os.environ.copy(),
     )
+
+
+async def _ensure_test_database() -> None:
+    """Create the isolated real-Postgres test database when it does not exist."""
+    test_url = make_url(TEST_DATABASE_URL)
+    if not test_url.database:
+        raise ValueError("TEST_DATABASE_URL must include a database name")
+    admin_engine = create_async_engine(
+        test_url.set(database="postgres"),
+        isolation_level="AUTOCOMMIT",
+    )
+    try:
+        async with admin_engine.connect() as connection:
+            exists = await connection.scalar(
+                text("SELECT 1 FROM pg_database WHERE datname = :database_name"),
+                {"database_name": test_url.database},
+            )
+            if not exists:
+                escaped_name = test_url.database.replace('"', '""')
+                await connection.exec_driver_sql(f'CREATE DATABASE "{escaped_name}"')
+    finally:
+        await admin_engine.dispose()
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")

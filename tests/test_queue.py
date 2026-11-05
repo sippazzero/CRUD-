@@ -45,8 +45,23 @@ async def test_parallel_claimers_claim_each_ticket_once(
     async def claim_all() -> list[str]:
         claimed: list[str] = []
         async with AsyncSession(postgres_engine) as session:
-            while ticket := await claim_next(session, lease=timedelta(minutes=2)):
-                claimed.append(str(ticket.id))
+            while True:
+                ticket = await claim_next(session, lease=timedelta(minutes=2))
+                if ticket is not None:
+                    claimed.append(str(ticket.id))
+                    continue
+
+                remaining = await session.scalar(
+                    select(func.count())
+                    .select_from(Ticket)
+                    .where(
+                        Ticket.status == "new",
+                        Ticket.next_attempt_at <= func.now(),
+                    )
+                )
+                if not remaining:
+                    break
+                await asyncio.sleep(0.01)
         return claimed
 
     batches = await asyncio.gather(*(claim_all() for _ in range(5)))
