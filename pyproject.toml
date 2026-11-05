@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "helpdesk-ai"
+version = "0.1.0"
+description = "An AI-assisted helpdesk ticket service."
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.15,<2.0",
+    "asyncpg>=0.30,<1.0",
+    "fastapi>=0.115,<1.0",
+    "httpx>=0.28,<1.0",
+    "pydantic-settings>=2.8,<3.0",
+    "python-json-logger>=3.3,<4.0",
+    "sqlalchemy[asyncio]>=2.0,<3.0",
+    "uvicorn>=0.34,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9.0",
+    "pytest-asyncio>=0.25,<2.0",
+    "ruff>=0.11,<1.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+src = ["app", "tests", "alembic"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
