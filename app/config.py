@@ -5,6 +5,16 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
+
+
+def normalize_database_url(database_url: str) -> str:
+    """Convert managed PostgreSQL URL schemes to SQLAlchemy's asyncpg scheme."""
+    for scheme in ("postgres://", "postgresql://"):
+        if database_url.startswith(scheme):
+            return database_url.replace(scheme, "postgresql+asyncpg://", 1)
+    return database_url
 
 
 class Settings(BaseSettings):
@@ -41,6 +51,23 @@ class Settings(BaseSettings):
     mock_fail_before_record: int = 0
     mock_duplicate_mode: bool = False
     mock_api_url: str = "http://api:8000/webhooks/helpdesk"
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def validate_database_url(cls, value: str | None) -> str:
+        """Normalize and validate the managed database URL before any consumer."""
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("DATABASE_URL must not be empty")
+
+        normalized = normalize_database_url(value.strip())
+        try:
+            parsed = make_url(normalized)
+        except (ArgumentError, ValueError) as error:
+            raise ValueError("DATABASE_URL must be a valid PostgreSQL URL") from error
+
+        if parsed.port is None:
+            raise ValueError("DATABASE_URL must include a port")
+        return normalized
 
     @field_validator("llm_api_key", mode="before")
     @classmethod

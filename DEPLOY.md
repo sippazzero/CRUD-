@@ -16,7 +16,7 @@ Railway currently lists a Free plan with $1/month usage credit, a per-service ma
 
 1. Sign in at <https://railway.com>, create a project, choose **Deploy from GitHub repo**, authorize Railway's GitHub app if prompted, and select `sippazzero/CRUD-` on `main`.
 2. Select the API service. In **Settings → Build**, use the repository `Dockerfile`. The committed [`railway.json`](railway.json) supplies the Dockerfile builder, migration-plus-Uvicorn start command, `/health` check and restart policy. Railway documents config-as-code as deprecated, with existing support only through 2026-12-01; review the service's **Settings → Deploy** values directly and set them in the dashboard if the file is no longer honored.
-3. In the project canvas, click **New → Database → PostgreSQL**. Keep the database private. On the API service's **Variables** page add `DATABASE_URL` using a Railway reference to the PostgreSQL service's `DATABASE_URL`. The application converts Railway's `postgres://` or `postgresql://` URL scheme to SQLAlchemy's asyncpg driver scheme at startup.
+3. In the project canvas, click **New → Database → PostgreSQL**. Keep the database private. On the API service's **Variables** page set `DATABASE_URL` to a Railway reference to the PostgreSQL service's `DATABASE_URL`, for example `${{Postgres-0OQn.DATABASE_URL}}` (use the actual name of your PostgreSQL service). Do not manually edit the URL scheme; application settings normalize `postgres://` and `postgresql://` centrally to `postgresql+asyncpg://`, and leave URLs that already specify `+asyncpg` unchanged.
 4. On the API service's **Variables** page, add these environment variable names:
 
    ```text
