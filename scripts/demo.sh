@@ -12,6 +12,8 @@ API_URL="http://127.0.0.1:${API_PORT:-8000}"
 MOCK_URL="http://127.0.0.1:${HELPDESK_MOCK_PORT:-8001}"
 DB_USER="${POSTGRES_USER:-helpdesk}"
 DB_NAME="${POSTGRES_DB:-helpdesk}"
+draft_file=$(mktemp)
+trap 'rm -f "$draft_file"' EXIT
 
 db_scalar() {
     docker compose exec -T db psql \
@@ -37,14 +39,40 @@ wait_for_http() {
 send_webhook() {
     local event_id="$1"
     local ticket_id="$2"
+    local message='\u041d\u0435 \u043c\u043e\u0436\u0443 \u0435\u043a\u0441\u043f\u043e\u0440\u0442\u0443\u0432\u0430\u0442\u0438 \u0437\u0432\u0456\u0442 \u0443 PDF'
     local payload
     payload=$(printf \
-        '{"event_id":"%s","ticket_id":"%s","customer_email":"demo@example.com","message":"Як експортувати звіт у PDF?","reply_url":"http://helpdesk-mock:8001/reply"}' \
-        "$event_id" "$ticket_id")
+        '{"event_id":"%s","ticket_id":"%s","customer_email":"demo@example.com","message":"%s","reply_url":"http://helpdesk-mock:8001/reply"}' \
+        "$event_id" "$ticket_id" "$message")
     curl --silent --show-error --fail \
         -H 'Content-Type: application/json' \
         -d "$payload" \
         "$API_URL/webhooks/helpdesk"
+}
+
+approve_ticket() {
+    local event_id="$1"
+    local ticket_uuid
+    local approval_status
+    local draft_file_for_curl
+    ticket_uuid=$(db_scalar \
+        "SELECT id FROM tickets WHERE event_id = '${event_id}';")
+    # A file preserves the generated UTF-8 draft across Windows shell arguments.
+    docker compose exec -T db psql \
+        -U "$DB_USER" \
+        -d "$DB_NAME" \
+        -v ON_ERROR_STOP=1 \
+        -Atc "SELECT draft_text FROM tickets WHERE event_id = '${event_id}';" \
+        >"$draft_file"
+    draft_file_for_curl=$(cygpath -w "$draft_file")
+    approval_status=$(curl --silent --show-error --output /dev/null \
+        --write-out '%{http_code}' \
+        --request POST "$API_URL/operator/approve/$ticket_uuid" \
+        --data-urlencode "draft_text@$draft_file_for_curl")
+    if [[ "$approval_status" != "303" ]]; then
+        printf 'Expected approval redirect 303, got %s\n' "$approval_status" >&2
+        return 1
+    fi
 }
 
 wait_for_status() {
@@ -105,18 +133,7 @@ if [[ "$accepted_rows" != "1" ]]; then
 fi
 
 wait_for_status "$first_event" "draft_ready"
-first_uuid=$(db_scalar \
-    "SELECT id FROM tickets WHERE event_id = '${first_event}';")
-first_draft=$(db_scalar \
-    "SELECT draft_text FROM tickets WHERE event_id = '${first_event}';")
-approval_status=$(curl --silent --show-error --output /dev/null \
-    --write-out '%{http_code}' \
-    --request POST "$API_URL/operator/approve/$first_uuid" \
-    --data-urlencode "draft_text=$first_draft")
-if [[ "$approval_status" != "303" ]]; then
-    printf 'Expected approval redirect 303, got %s\n' "$approval_status" >&2
-    exit 1
-fi
+approve_ticket "$first_event"
 wait_for_status "$first_event" "sent"
 printf 'Ticket status: %s\n' \
     "$(db_scalar "SELECT status FROM tickets WHERE event_id = '${first_event}';")"
@@ -131,18 +148,7 @@ second_event="evt_demo_retry_$(date +%s)_$$"
 second_ticket="T-demo-retry-$$"
 send_webhook "$second_event" "$second_ticket"
 wait_for_status "$second_event" "draft_ready"
-second_uuid=$(db_scalar \
-    "SELECT id FROM tickets WHERE event_id = '${second_event}';")
-second_draft=$(db_scalar \
-    "SELECT draft_text FROM tickets WHERE event_id = '${second_event}';")
-approval_status=$(curl --silent --show-error --output /dev/null \
-    --write-out '%{http_code}' \
-    --request POST "$API_URL/operator/approve/$second_uuid" \
-    --data-urlencode "draft_text=$second_draft")
-if [[ "$approval_status" != "303" ]]; then
-    printf 'Expected approval redirect 303, got %s\n' "$approval_status" >&2
-    exit 1
-fi
+approve_ticket "$second_event"
 wait_for_status "$second_event" "sent"
 second_attempts=$(db_scalar \
     "SELECT delivery_attempts FROM tickets WHERE event_id = '${second_event}';")
