@@ -2,6 +2,19 @@
 
 Helpdesk AI accepts support-ticket webhooks, retrieves supporting articles, drafts a Ukrainian reply, and waits for an operator to approve it before delivery.
 
+## Live demo
+
+The service is deployed on Railway (API with embedded worker, plus PostgreSQL). Deployment notes are in [DEPLOY.md](DEPLOY.md).
+
+- Health: https://crud-production-a698.up.railway.app/health
+- Operator page: https://crud-production-a698.up.railway.app/operator/moderation
+- Webhook: `POST https://crud-production-a698.up.railway.app/webhooks/helpdesk`
+- API docs: https://crud-production-a698.up.railway.app/docs
+
+The hosted demo is intentionally open: there is no operator authentication, so do not use real customer data. It runs without `LLM_API_KEY`, as the assignment allows: the worker still makes a real provider request, then uses a static cited draft after a 5–30 s delay. Real-model generation was checked only locally (see "Local real-model check" below).
+
+Railway's free credit is limited, so the demo may be interrupted if the credit runs out. Limits and pricing change over time; see [DEPLOY.md](DEPLOY.md).
+
 ## Architecture
 
 ```text
@@ -29,11 +42,11 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Compose starts PostgreSQL, runs Alembic migrations before serving the API, and starts the API, worker, and mock. The API health check is at <http://localhost:8000/health>, the mock is at <http://localhost:8001/health>, and the operator review page is at <http://localhost:8000/operator/moderation>. Basic Auth is disabled by default for local use. For the intended open reviewer demo, leave `OPERATOR_USERNAME` and `OPERATOR_PASSWORD` unset so the reviewer can access moderation; this repository has not been deployed and has no live public URLs. Set both variables to enable the optional Basic Auth on `/operator/*`; use HTTPS for public traffic. An open operator page can approve replies, so do not use it with real customer data.
+Compose starts PostgreSQL, runs Alembic migrations before serving the API, and starts the API, worker, and mock. The API health check is at <http://localhost:8000/health>, the mock is at <http://localhost:8001/health>, and the operator review page is at <http://localhost:8000/operator/moderation>. Basic Auth is disabled by default for local use. For the open reviewer demo on Railway, `OPERATOR_USERNAME` and `OPERATOR_PASSWORD` are unset, so the reviewer can access moderation. Set both variables to enable the optional Basic Auth on `/operator/*`; use HTTPS for public traffic. An open operator page can approve replies, so do not use it with real customer data.
 
 Callback validation resolves every non-mock hostname and rejects a URL if any IPv4/IPv6 result is non-public (including loopback, private, link-local, and metadata ranges). The worker repeats this check immediately before sending, and HTTP redirects are disabled. The Compose callback hostname is `HELPDESK_MOCK_HOST=helpdesk-mock`; change that environment variable only when the helpdesk mock's service hostname differs. DNS is checked again on delivery, but resolution and connection are separate operations, so DNS rebinding between them remains a limitation. The assignment's reserved `helpdesk.example.com` sample is accepted at ingestion when it does not resolve; delivery still rejects an unresolvable target.
 
-Webhook IDs are idempotent: the first payload persisted for an `event_id` wins. A later request reusing that ID—even with a different payload—returns the same `200` acknowledgement and does not replace the first event.
+Webhook IDs are idempotent: the first payload persisted for an `event_id` wins. A later request reusing that ID, even with a different payload, returns the same `200` acknowledgement and does not replace the first event.
 
 Run the full integration suite against the Compose PostgreSQL service:
 
@@ -50,14 +63,6 @@ bash scripts/demo.sh
 ```
 
 The demo leaves the Compose stack running so the reviewer can inspect the operator page and mock delivery log.
-
-Deployment preparation for Railway is in [DEPLOY.md](DEPLOY.md). **No public deployment has been created.** The Railway CLI is not installed here, so no account login or deployment could be verified. Therefore there are currently no public webhook, operator, or mock URLs, and no public behavior has been verified. After deployment, record the provider URLs here:
-
-- Webhook: not deployed (`https://<api-domain>/webhooks/helpdesk`)
-- Operator page: not deployed (`https://<api-domain>/operator/moderation`)
-- Helpdesk mock: not deployed (`https://<mock-domain>`)
-
-Railway's documented Free plan lists $1/month in usage credit, with per-service maximums including 0.5 GB RAM, 1 vCPU, and one replica. This is not an always-on production guarantee: credit exhaustion can interrupt the service. Railway persistent services are not documented as sleeping after inactivity, but deploys, failures, or exhausted credits can cause downtime. The Hobby plan is currently $5/month and includes $5 of resource usage; actual usage may exceed that. Limits/pricing are time-sensitive; see [DEPLOY.md](DEPLOY.md) and confirm Railway's current plan page before deploying. The API and embedded worker share one container and resource budget; the separate mock is intentionally a demo service, not a production helpdesk.
 
 The independent runtime and code-review results, including known gaps, are in [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md).
 
@@ -91,7 +96,7 @@ The shared PostgreSQL daily quota defaults to 300 provider-call attempts per UTC
 
 ## Load-test results
 
-On 2026-11-06, a local Compose run sent 500 unique tickets plus 50 duplicate webhook deliveries over 60 seconds with the default `WORKER_CONCURRENCY=30`. All 500 persisted rows reached `sent` in about 8m59s; webhook p95 was 0.013s and the longest response was 0.071s. The database recorded 504 generation attempts and 500 delivery attempts, and the mock recorded exactly 500 deliveries with no missing or duplicate ticket IDs. The run finished in about 8m59 because the 60 requests/minute limit makes about 8m20 the theoretical minimum, so the rate limiter held the limit and no ticket was lost.
+On 2026-11-06, a local Compose run sent 500 unique tickets plus 50 duplicate webhook deliveries over 60 seconds with the default `WORKER_CONCURRENCY=30`. All 500 persisted rows reached `sent` in about 8m59s; webhook p95 was 0.013s and the longest response was 0.071s. The database recorded 504 generation attempts and 500 delivery attempts, and the mock recorded exactly 500 deliveries with no missing or duplicate ticket IDs. The run took about 8m59s because the 60 requests/minute limit makes about 8m20s the theoretical minimum, so the rate limiter held the limit and no ticket was lost.
 
 A separate 120-ticket run at the same default concurrency sent 132 webhook requests, and all 120 tickets reached `sent`. An HTTP counter observed 120 provider requests, with at most 59 arrivals in any rolling 60-second window; webhook p95 was 0.292s and the longest response was 0.340s. A direct no-key provider probe received HTTP 401, then produced a static cited draft after a test-configured five-second fallback delay.
 
