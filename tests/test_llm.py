@@ -1,5 +1,6 @@
 """Unit and PostgreSQL integration tests for LLM generation and throttling."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -100,3 +101,66 @@ async def test_postgres_token_bucket_caps_requests_with_fake_clock(
             select(LLMRateLimitState).where(LLMRateLimitState.id == 1)
         )
     assert state is not None
+
+
+@pytest.mark.asyncio
+async def test_token_bucket_does_not_regress_clock_while_waiting_for_row_lock(
+    postgres_engine: AsyncEngine,
+) -> None:
+    """Sample time under lock to prevent stale contenders moving time backward."""
+    clock = FakeClock()
+    sleep_started = asyncio.Event()
+    release_sleep = asyncio.Event()
+
+    def sample_time() -> datetime:
+        return clock.now()
+
+    async def hold_for_inspection(seconds: float) -> None:
+        assert seconds == 1
+        sleep_started.set()
+        await release_sleep.wait()
+        clock.current += timedelta(seconds=seconds)
+
+    async with AsyncSession(postgres_engine) as session:
+        await session.execute(
+            update(LLMRateLimitState)
+            .where(LLMRateLimitState.id == 1)
+            .values(tokens=0, updated_at=clock.now())
+        )
+        await session.commit()
+
+    limiter = PostgresTokenBucket(
+        session_factory=async_sessionmaker(
+            postgres_engine,
+            expire_on_commit=False,
+        ),
+        clock=sample_time,
+        sleep=hold_for_inspection,
+    )
+    async with AsyncSession(postgres_engine) as lock_session:
+        async with lock_session.begin():
+            await lock_session.execute(
+                select(LLMRateLimitState)
+                .where(LLMRateLimitState.id == 1)
+                .with_for_update()
+            )
+            acquire_task = asyncio.create_task(limiter.acquire())
+            await asyncio.sleep(0.05)
+            clock.current += timedelta(seconds=5)
+            await lock_session.execute(
+                update(LLMRateLimitState)
+                .where(LLMRateLimitState.id == 1)
+                .values(tokens=0, updated_at=clock.now())
+            )
+
+    try:
+        await sleep_started.wait()
+        async with AsyncSession(postgres_engine) as session:
+            state = await session.scalar(
+                select(LLMRateLimitState).where(LLMRateLimitState.id == 1)
+            )
+        assert state is not None
+        assert state.updated_at == clock.now()
+    finally:
+        release_sleep.set()
+        await acquire_task

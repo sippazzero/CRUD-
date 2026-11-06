@@ -32,7 +32,6 @@ class PostgresTokenBucket:
         """Wait until a token is available and atomically consume it in PostgreSQL."""
         while True:
             wait_seconds = 0.0
-            now = self._clock()
             async with self._session_factory() as session:
                 async with session.begin():
                     state = await session.scalar(
@@ -45,6 +44,7 @@ class PostgresTokenBucket:
                             "LLM rate-limit state is missing; apply database migrations"
                         )
 
+                    now = self._clock()
                     elapsed = max((now - state.updated_at).total_seconds(), 0.0)
                     state.tokens = min(1.0, state.tokens + elapsed)
                     if state.tokens >= 1.0:
