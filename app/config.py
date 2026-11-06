@@ -11,6 +11,8 @@ from sqlalchemy.exc import ArgumentError
 
 def normalize_database_url(database_url: str) -> str:
     """Convert managed PostgreSQL URL schemes to SQLAlchemy's asyncpg scheme."""
+    if "+asyncpg" in database_url:
+        return database_url
     for scheme in ("postgres://", "postgresql://"):
         if database_url.startswith(scheme):
             return database_url.replace(scheme, "postgresql+asyncpg://", 1)
