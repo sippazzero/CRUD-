@@ -136,7 +136,8 @@ async def test_webhook_ticket_becomes_draft_ready(
         assert 5 <= seconds <= 30
 
     settings = Settings(
-        llm_api_url="https://provider.example/v1/chat/completions",
+        llm_provider="openai_compatible",
+        llm_base_url="https://provider.example",
         llm_api_key=None,
         llm_static_fallback_enabled=True,
     )

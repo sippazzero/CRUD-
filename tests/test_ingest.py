@@ -17,6 +17,13 @@ PAYLOAD = {
     "message": "I cannot export my report to PDF.",
     "reply_url": "https://helpdesk.example.com/tickets/T-test-ingest/replies",
 }
+ASSIGNMENT_SAMPLE_PAYLOAD = {
+    "event_id": "evt_sample1",
+    "ticket_id": "T-1042",
+    "customer_email": "user@example.com",
+    "message": "Cannot export report to PDF",
+    "reply_url": "https://helpdesk.example.com/tickets/T-1042/replies",
+}
 
 
 async def _ticket_count(postgres_engine: AsyncEngine, event_id: str) -> int:
@@ -48,6 +55,21 @@ async def test_first_delivery_persists_one_new_ticket(
     assert ticket.attempts == 0
     assert ticket.next_attempt_at is not None
     assert await _ticket_count(postgres_engine, PAYLOAD["event_id"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_assignment_sample_callback_is_accepted(
+    api_client: httpx.AsyncClient,
+    postgres_engine: AsyncEngine,
+) -> None:
+    """The provided sample payload remains valid despite DNS safety checks."""
+    response = await api_client.post(
+        WEBHOOK_PATH,
+        json=ASSIGNMENT_SAMPLE_PAYLOAD,
+    )
+
+    assert response.status_code == 200
+    assert await _ticket_count(postgres_engine, "evt_sample1") == 1
 
 
 @pytest.mark.asyncio

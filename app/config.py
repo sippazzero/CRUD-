@@ -1,7 +1,7 @@
 """Environment-backed settings for the helpdesk service."""
 
 from functools import lru_cache
-from urllib.parse import urlsplit
+from typing import Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -14,8 +14,9 @@ class Settings(BaseSettings):
         "postgresql+asyncpg://helpdesk:change-me-local-only@db:5432/helpdesk"
     )
     log_level: str = "INFO"
-    llm_api_url: str = "https://api.openai.com/v1/chat/completions"
-    llm_model: str = "gpt-4o-mini"
+    llm_provider: Literal["ollama", "openai_compatible"] = "ollama"
+    llm_base_url: str = "https://ollama.com"
+    llm_model: str = "gemma4:31b"
     llm_api_key: str | None = None
     llm_static_fallback_enabled: bool = True
     llm_timeout_seconds: float = 30.0
@@ -29,7 +30,9 @@ class Settings(BaseSettings):
     sender_timeout_seconds: float = 10.0
     sender_max_attempts: int = 5
     sender_lease_seconds: int = 300
-    helpdesk_allowed_reply_hosts: str = "helpdesk-mock"
+    helpdesk_mock_host: str = "helpdesk-mock"
+    operator_username: str | None = None
+    operator_password: str | None = None
     mock_failure_rate: float = 0.0
     mock_hang_rate: float = 0.0
     mock_hang_seconds: float = 15.0
@@ -43,26 +46,11 @@ class Settings(BaseSettings):
         """Treat an empty Compose environment value as an absent credential."""
         return value or None
 
-    def is_reply_url_allowed(self, url: str) -> bool:
-        """Allow callback requests only to explicitly configured hostnames."""
-        try:
-            parsed_url = urlsplit(url)
-            hostname = parsed_url.hostname
-        except ValueError:
-            return False
-
-        allowed_hosts = {
-            host.strip().lower()
-            for host in self.helpdesk_allowed_reply_hosts.split(",")
-            if host.strip()
-        }
-        return (
-            parsed_url.scheme.lower() in {"http", "https"}
-            and hostname is not None
-            and hostname.lower() in allowed_hosts
-            and parsed_url.username is None
-            and parsed_url.password is None
-        )
+    @field_validator("operator_username", "operator_password", mode="before")
+    @classmethod
+    def normalize_empty_operator_credential(cls, value: str | None) -> str | None:
+        """Treat empty optional Compose values as disabled operator credentials."""
+        return value or None
 
     model_config = SettingsConfigDict(
         case_sensitive=False,

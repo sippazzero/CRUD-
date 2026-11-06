@@ -39,7 +39,6 @@ class MockBehavior:
     hang_after_record: int = 0
     permanent_status: int | None = None
     duplicate_webhooks: bool = False
-    success_status: int = 201
 
 
 @dataclass
@@ -113,7 +112,7 @@ def create_mock_app(
                         content="Idempotency-Key was reused with a different reply",
                     )
                 return Response(
-                    status_code=state.behavior.success_status,
+                    status_code=201,
                     content="Already Delivered",
                 )
 
@@ -151,7 +150,7 @@ def create_mock_app(
             extra={"ticket_id": reply.ticket_id, "idempotency_key": idempotency_key},
         )
         return Response(
-            status_code=state.behavior.success_status,
+            status_code=201,
             content="Delivered",
         )
 

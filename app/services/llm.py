@@ -23,7 +23,7 @@ class GeneratedDraft:
 
 
 class LLMClient:
-    """Generate drafts through an OpenAI-compatible chat-completions endpoint."""
+    """Generate cited drafts through Ollama or an OpenAI-compatible endpoint."""
 
     def __init__(
         self,
@@ -92,7 +92,7 @@ class LLMClient:
             for article in articles
         )
         response = await self._client.post(
-            self._settings.llm_api_url,
+            self._endpoint_url(),
             headers=self._request_headers(),
             json={
                 "model": self._settings.llm_model,
@@ -113,15 +113,26 @@ class LLMClient:
                         ),
                     },
                 ],
+                "stream": False,
             },
             timeout=self._settings.llm_timeout_seconds,
         )
         response.raise_for_status()
         payload = response.json()
-        generated = payload["choices"][0]["message"]["content"]
+        if self._settings.llm_provider == "ollama":
+            generated = payload["message"]["content"]
+        else:
+            generated = payload["choices"][0]["message"]["content"]
         if not isinstance(generated, str) or not generated.strip():
             raise ValueError("Provider returned an empty or invalid draft")
         return generated.strip()
+
+    def _endpoint_url(self) -> str:
+        """Map the configured provider base URL to its documented chat route."""
+        base_url = self._settings.llm_base_url.rstrip("/")
+        if self._settings.llm_provider == "ollama":
+            return f"{base_url}/api/chat"
+        return f"{base_url}/v1/chat/completions"
 
     def _request_headers(self) -> dict[str, str]:
         """Add bearer authentication only when the environment provides a key."""

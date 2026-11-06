@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 
 import logging
+import secrets
 from typing import Annotated
 from uuid import UUID
 
@@ -11,6 +12,7 @@ from fastapi.responses import (
     RedirectResponse,
     Response,
 )
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,11 +23,50 @@ from app.logging_config import configure_logging
 from app.models import Ticket
 from app.schemas import HelpdeskWebhook
 from app.services.ingest import ingest_ticket
+from app.services.url_safety import is_safe_reply_url
 
 configure_logging(get_settings().log_level)
 app: FastAPI = FastAPI(title="Helpdesk AI")
 templates = Jinja2Templates(directory="app/templates")
 logger: logging.Logger = logging.getLogger(__name__)
+basic_auth = HTTPBasic(auto_error=False)
+
+
+async def require_operator_auth(
+    credentials: Annotated[HTTPBasicCredentials | None, Depends(basic_auth)],
+) -> None:
+    """Enforce optional operator Basic Auth without logging submitted credentials."""
+    settings = get_settings()
+    expected_username = settings.operator_username
+    expected_password = settings.operator_password
+    if expected_username is None and expected_password is None:
+        return
+    if expected_username is None or expected_password is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Operator authentication is misconfigured",
+        )
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Operator authentication required",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    username_matches = secrets.compare_digest(
+        credentials.username.encode("utf-8"),
+        expected_username.encode("utf-8"),
+    )
+    password_matches = secrets.compare_digest(
+        credentials.password.encode("utf-8"),
+        expected_password.encode("utf-8"),
+    )
+    if not (username_matches & password_matches):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid operator credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
 
 
 async def _render_moderation(
@@ -59,6 +100,7 @@ async def health() -> str:
 async def operator_moderation(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
+    _: Annotated[None, Depends(require_operator_auth)],
 ) -> HTMLResponse:
     """Render drafts that are waiting for an operator decision."""
     return await _render_moderation(request, session)
@@ -70,6 +112,7 @@ async def approve_ticket(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     draft_text: Annotated[str, Form()],
+    _: Annotated[None, Depends(require_operator_auth)],
 ) -> Response:
     """Approve the submitted draft only while the ticket remains reviewable."""
     async with session.begin():
@@ -99,6 +142,7 @@ async def reject_ticket(
     ticket_id: UUID,
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
+    _: Annotated[None, Depends(require_operator_auth)],
 ) -> Response:
     """Reject the draft only while the ticket remains in the review queue."""
     async with session.begin():
@@ -124,10 +168,14 @@ async def receive_helpdesk_webhook(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, str]:
     """Persist and acknowledge an event without performing downstream work."""
-    if not get_settings().is_reply_url_allowed(str(event.reply_url)):
+    if not await is_safe_reply_url(
+        str(event.reply_url),
+        get_settings(),
+        allow_unresolvable_sample=True,
+    ):
         raise HTTPException(
             status_code=422,
-            detail="reply_url host is not in HELPDESK_ALLOWED_REPLY_HOSTS",
+            detail="reply_url must resolve only to public addresses",
         )
 
     accepted = await ingest_ticket(session, event)

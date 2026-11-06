@@ -1,6 +1,7 @@
 """PostgreSQL-backed integration coverage for moderation and reply delivery."""
 
 import asyncio
+import json
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -56,6 +57,27 @@ class LoseFirstResponse(httpx.AsyncBaseTransport):
             self._dropped = True
             raise httpx.ReadTimeout("Simulated lost response", request=request)
         return response
+
+    async def aclose(self) -> None:
+        """Close the underlying in-process ASGI transport."""
+        await self._transport.aclose()
+
+
+class CaptureRequestBody(httpx.AsyncBaseTransport):
+    """Capture sender JSON while forwarding to the actual in-process mock."""
+
+    def __init__(self, mock_app: ASGIApp) -> None:
+        """Create a request observer backed by the real mock application."""
+        self._transport = httpx.ASGITransport(app=mock_app)
+        self.payloads: list[dict[str, object]] = []
+
+    async def handle_async_request(
+        self,
+        request: httpx.Request,
+    ) -> httpx.Response:
+        """Record the exact request object before mock validation."""
+        self.payloads.append(json.loads(await request.aread()))
+        return await self._transport.handle_async_request(request)
 
     async def aclose(self) -> None:
         """Close the underlying in-process ASGI transport."""
@@ -151,6 +173,7 @@ def _settings(**overrides: object) -> Settings:
         "sender_max_attempts": 4,
         "worker_backoff_base_seconds": 0.01,
         "worker_backoff_max_seconds": 0.02,
+        "helpdesk_mock_host": "helpdesk",
     }
     values.update(overrides)
     return Settings(**values)
@@ -242,12 +265,20 @@ async def test_successful_delivery_marks_sent_once(
     """A successful helpdesk response persists sent and one delivery record."""
     ticket = await _create_ticket(postgres_engine)
     mock_app = create_mock_app()
+    capture = CaptureRequestBody(mock_app)
 
-    assert await _process_once(postgres_engine, mock_app=mock_app)
+    assert await _process_once(
+        postgres_engine,
+        mock_app=mock_app,
+        transport=capture,
+    )
 
     saved = await _load_ticket(postgres_engine, ticket.id)
     assert saved.status == "sent"
     assert await _delivery_count(mock_app) == 1
+    assert capture.payloads == [
+        {"ticket_id": ticket.ticket_id, "message": ticket.draft_text}
+    ]
 
 
 @pytest.mark.asyncio
@@ -256,7 +287,7 @@ async def test_two_transient_failures_retry_then_send_once(
 ) -> None:
     """Transient failures retain one idempotent record and eventually send."""
     ticket = await _create_ticket(postgres_engine)
-    mock_app = create_mock_app(MockBehavior(fail_before_record=2, success_status=200))
+    mock_app = create_mock_app(MockBehavior(fail_before_record=2))
     for expected_attempt in (1, 2, 3):
         assert await _process_once(
             postgres_engine,
@@ -271,6 +302,29 @@ async def test_two_transient_failures_retry_then_send_once(
             assert saved.status == "sent"
             assert saved.delivery_attempts == 3
 
+    assert await _delivery_count(mock_app) == 1
+
+
+@pytest.mark.asyncio
+async def test_mock_replay_returns_created_without_duplicate_record() -> None:
+    """The mock uses 201 both for a new idempotent reply and its replay."""
+    mock_app = create_mock_app()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=mock_app),
+        base_url="http://helpdesk",
+    ) as client:
+        responses = await asyncio.gather(
+            *(
+                client.post(
+                    "/reply",
+                    json={"ticket_id": "T-contract", "message": "Reply"},
+                    headers={"Idempotency-Key": "reply:T-contract"},
+                )
+                for _ in range(2)
+            )
+        )
+
+    assert [response.status_code for response in responses] == [201, 201]
     assert await _delivery_count(mock_app) == 1
 
 

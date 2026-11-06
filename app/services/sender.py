@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.config import Settings
 from app.models import Ticket
 from app.services.queue import DeliveryClaim
+from app.services.url_safety import is_safe_reply_url
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +45,11 @@ async def send_reply(
     """Send one leased reply and persist the outcome only while its lease is owned."""
     idempotency_key = f"reply:{ticket.ticket_id}"
     payload = {"ticket_id": ticket.ticket_id, "message": ticket.draft_text}
-    if not settings.is_reply_url_allowed(ticket.reply_url):
+    if not await is_safe_reply_url(ticket.reply_url, settings):
         await _record_delivery_failure(
             session_factory,
             ticket,
-            error="Helpdesk reply host is not in HELPDESK_ALLOWED_REPLY_HOSTS",
+            error="Helpdesk reply URL resolves to a non-public address",
             settings=settings,
             uniform=uniform,
             terminal=True,
@@ -85,7 +86,7 @@ async def send_reply(
         )
         return False
 
-    if 200 <= response.status_code < 300:
+    if response.status_code == 201:
         return await _record_sent(session_factory, ticket)
 
     if 500 <= response.status_code < 600 or response.status_code in (408, 429):
