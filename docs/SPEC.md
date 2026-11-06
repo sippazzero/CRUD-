@@ -2,14 +2,14 @@
 
 ## Goal and scope
 
-Build a small, durable helpdesk-ticket workflow that generates an LLM-assisted reply draft with knowledge-base references, requires operator approval, and then delivers the approved reply through a helpdesk mock. The service must accept webhook retries and concurrent duplicates without losing work. This document describes the intended design; it does not imply that application code has been implemented.
+Build a small, durable helpdesk-ticket workflow that generates an LLM-assisted reply draft with knowledge-base references, requires operator approval, and then delivers the approved reply through a helpdesk mock. The service must accept webhook retries and concurrent duplicates without losing work. This document records the current implementation contract and its operational limits. Update it alongside behavior changes so reviewers can compare the design with the code and tests.
 
 ## Components and runtime
 
 - **API:** FastAPI handles `POST /webhooks/helpdesk`, `GET /health`, and the server-rendered operator pages and actions.
 - **Worker:** A separate container running an async loop from the same codebase. Run one worker instance initially; the token-bucket state persisted in PostgreSQL enforces the LLM limit across the service and worker restarts. PostgreSQL also persists all work and retry state.
 - **PostgreSQL 16:** Primary store for tickets, webhook event IDs, knowledge-base articles, drafts, queue scheduling, and leases.
-- **Helpdesk mock:** A separate container accepts simulated webhook deliveries and reply submissions. It should implement idempotency-key handling so delivery retries can be tested.
+- **Helpdesk mock:** A separate container accepts simulated webhook deliveries and reply submissions. It implements idempotency-key handling and configurable faults so delivery retries can be tested.
 
 Run all components with Docker Compose. Configure secrets and service settings through environment variables; commit `.env.example`, never secret values.
 
@@ -83,7 +83,7 @@ Render the operator interface with server-side Jinja2 templates. Show tickets wi
 
 The worker atomically claims an `approved` ticket by changing it to `sending` before making the outbound request. Send the persisted approved draft to `reply_url` as JSON with the ticket ID and message, and include an `Idempotency-Key` stable for that ticket (for example, `reply:<ticket_id>`). Apply a finite timeout. Retry timeouts and 5xx responses with exponential backoff and jitter, reusing the same key; do not automatically retry permanent 4xx responses. Treat `201 Created` as success and then atomically record `sent`.
 
-Atomic local claims prevent concurrent workers from intentionally sending the same ticket at once. They cannot by themselves provide exactly-once delivery across PostgreSQL and an independent HTTP service: the process can lose the response or crash after the helpdesk accepts a reply but before `sent` is committed. In that case, retrying is safe only if the receiver durably deduplicates the stable `Idempotency-Key` and returns the original result. The mock records a reply before its configurable post-processing hang or 5xx fault and deduplicates concurrent and repeated keys in process memory; restarting the mock clears this test ledger, so a production receiver must persist its keys. Duplicate-webhook mode exercises event idempotency. Without receiver-side idempotency, the strongest honest guarantee is at-least-once attempts with a residual duplicate-delivery risk; exactly-once external side effects cannot be guaranteed by a local transaction.
+Atomic local claims prevent concurrent workers from intentionally sending the same ticket at once. They cannot by themselves provide exactly-once delivery across PostgreSQL and an independent HTTP service: the process can lose the response or crash after the helpdesk accepts a reply but before `sent` is committed. In that case, retrying is safe only if the receiver durably deduplicates the stable `Idempotency-Key` and returns the original result. The mock records a reply before its configurable post-processing hang or 5xx fault and deduplicates concurrent and repeated keys in process memory; restarting the mock clears this test ledger, so a production receiver must persist its keys. `MOCK_FAIL_BEFORE_RECORD` provides a bounded sequence of 5xx responses for a repeatable retry demonstration. Duplicate-webhook mode exercises event idempotency. Without receiver-side idempotency, the strongest honest guarantee is at-least-once attempts with a residual duplicate-delivery risk; exactly-once external side effects cannot be guaranteed by a local transaction.
 
 ## Health and operational expectations
 
