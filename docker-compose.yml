@@ -1,10 +1,10 @@
 services:
   db:
-    image: postgres:16
+    image: postgres:16.15@sha256:933463a6c8eba2b9f5cd414138738cd8d5519cd2c471214c222652f547a66a32
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-helpdesk}
       POSTGRES_USER: ${POSTGRES_USER:-helpdesk}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-helpdesk_dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -29,7 +29,8 @@ services:
       - -c
       - alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-helpdesk}:${POSTGRES_PASSWORD:-helpdesk_dev}@db:5432/${POSTGRES_DB:-helpdesk}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-helpdesk}:${POSTGRES_PASSWORD:-change-me-local-only}@db:5432/${POSTGRES_DB:-helpdesk}
+      TEST_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-helpdesk}:${POSTGRES_PASSWORD:-change-me-local-only}@db:5432/helpdesk_test
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       db:
@@ -44,7 +45,7 @@ services:
       dockerfile: Dockerfile
     command: ["python", "-m", "app.worker"]
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-helpdesk}:${POSTGRES_PASSWORD:-helpdesk_dev}@db:5432/${POSTGRES_DB:-helpdesk}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-helpdesk}:${POSTGRES_PASSWORD:-change-me-local-only}@db:5432/${POSTGRES_DB:-helpdesk}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LLM_API_URL: ${LLM_API_URL:-https://api.openai.com/v1/chat/completions}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
@@ -84,6 +85,7 @@ services:
       MOCK_FAILURE_RATE: ${MOCK_FAILURE_RATE:-0}
       MOCK_HANG_RATE: ${MOCK_HANG_RATE:-0}
       MOCK_HANG_SECONDS: ${MOCK_HANG_SECONDS:-15}
+      MOCK_FAIL_BEFORE_RECORD: ${MOCK_FAIL_BEFORE_RECORD:-0}
       MOCK_DUPLICATE_MODE: ${MOCK_DUPLICATE_MODE:-false}
       MOCK_API_URL: ${MOCK_API_URL:-http://api:8000/webhooks/helpdesk}
     depends_on:

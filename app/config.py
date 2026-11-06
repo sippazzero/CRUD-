@@ -9,7 +9,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Runtime configuration loaded exclusively from environment variables."""
 
-    database_url: str = "postgresql+asyncpg://helpdesk:helpdesk@db:5432/helpdesk"
+    database_url: str = (
+        "postgresql+asyncpg://helpdesk:change-me-local-only@db:5432/helpdesk"
+    )
     log_level: str = "INFO"
     llm_api_url: str = "https://api.openai.com/v1/chat/completions"
     llm_model: str = "gpt-4o-mini"
@@ -28,6 +30,7 @@ class Settings(BaseSettings):
     mock_failure_rate: float = 0.0
     mock_hang_rate: float = 0.0
     mock_hang_seconds: float = 15.0
+    mock_fail_before_record: int = 0
     mock_duplicate_mode: bool = False
     mock_api_url: str = "http://api:8000/webhooks/helpdesk"
 

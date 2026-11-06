@@ -156,6 +156,13 @@ def _settings(**overrides: object) -> Settings:
     return Settings(**values)
 
 
+def test_mock_fault_window_is_loaded_from_settings() -> None:
+    """Compose can configure bounded pre-record failures for repeatable demos."""
+    app = create_mock_app(settings=_settings(mock_fail_before_record=2))
+
+    assert app.state.mock.behavior.fail_before_record == 2
+
+
 async def _process_once(
     postgres_engine: AsyncEngine,
     *,

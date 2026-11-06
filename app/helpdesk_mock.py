@@ -74,6 +74,7 @@ def create_mock_app(
         failure_rate=app_settings.mock_failure_rate,
         hang_rate=app_settings.mock_hang_rate,
         hang_seconds=app_settings.mock_hang_seconds,
+        fail_before_record=app_settings.mock_fail_before_record,
         duplicate_webhooks=app_settings.mock_duplicate_mode,
     )
     app = FastAPI(title="Helpdesk Mock")
