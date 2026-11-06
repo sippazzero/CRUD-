@@ -124,7 +124,6 @@ The captured real-model response began: “Вітаємо! Щоб експорт
 - No integration with a real helpdesk was tested.
 - The mock's delivery ledger is in memory; production receiver-side idempotency must be durable.
 - A worker kill during active draft generation, a live run with exactly two worker replicas, and SIGTERM during active work were not separately demonstrated in this acceptance session.
-- The README contains one `TODO(Max)` asking the author to add any agents or tools used outside the repository's recorded work.
 
 ## Original assignment re-verification
 
