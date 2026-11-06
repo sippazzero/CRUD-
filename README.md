@@ -47,6 +47,14 @@ bash scripts/demo.sh
 
 The demo leaves the Compose stack running so the reviewer can inspect the operator page and mock delivery log.
 
+Run the measured webhook load test from the running API container:
+
+```sh
+docker compose exec api python scripts/load_test.py --duration-seconds 60
+```
+
+The script sends 500 distinct ticket events plus 50 duplicate deliveries over 60 seconds, auto-approves resulting drafts through the operator endpoint, and polls the run's database rows until they reach `sent`, `send_failed`, `failed`, or `rejected`. Use `--duration-seconds 600` for a 10-minute arrival window. The default worker concurrency is intentionally small; for a throughput run, set `WORKER_CONCURRENCY=60` in `.env` before starting Compose. The no-key LLM fallback still attempts the configured provider and waits 5–30 seconds per draft, so processing can continue after the arrival window. The script enforces the two-second webhook budget and reports per-run rows and status counts without deleting existing data.
+
 ## Design decisions
 
 **PostgreSQL queue, not Redis or RabbitMQ.** Tickets and retry schedules are already durable in PostgreSQL, so workers claim them with `FOR UPDATE SKIP LOCKED` and short-lived leases. This avoids another broker and supports recovery after a worker crash; the stated volume does not justify additional infrastructure.
@@ -59,6 +67,12 @@ The demo leaves the Compose stack running so the reviewer can inspect the operat
 
 **No-key fallback.** With no API key and fallback enabled, the worker still attempts the configured provider request, discards the result, waits a random 5–30 seconds, and substitutes a static cited reply. This preserves the same queue and moderation flow while making local runs possible; the unauthenticated provider request may fail and is not anonymous inference.
 
+## Load-test results
+
+One local Compose run on 2026-11-06 sent 500 unique tickets plus 50 duplicate webhook deliveries over 60 seconds. With `WORKER_CONCURRENCY=60`, all 500 persisted rows reached `sent`; the database timestamps show 8m50.47s from first ticket creation to the last delivery. Webhook latency was 0.013s at p95 and 0.074s maximum, both below the two-second requirement.
+
+This is one local run, not a production capacity guarantee. Worker concurrency was raised from the default of 2 to 60, and the no-key fallback still attempts the configured provider before its 5–30 second delay. The result demonstrates the 500-ticket/10-minute target under that test configuration; default-concurrency and real-provider throughput remain unmeasured.
+
 ## Delivery guarantees and limits
 
 The worker commits a `sending` lease before making the HTTP request and sends a stable per-ticket `Idempotency-Key`. Delivery attempts are at-least-once: a timeout can happen after the helpdesk has accepted the reply, so the sender retries with the same key. If the receiver durably honors that key, it returns the original result and does not create a second reply; without receiver-side deduplication, a duplicate remains possible.
@@ -68,7 +82,7 @@ If a worker crashes mid-send, the expired lease returns the ticket to `approved`
 ## What I would do with more time
 
 - Add operator authentication and authorization before any non-local deployment.
-- Run a load test for the expected peak of 500 tickets per 10 minutes and tune database/worker limits from measured results.
+- Repeat the load test with the default worker concurrency and with a configured LLM provider; tune production worker and database limits from representative provider latency and deployment measurements.
 - Add operational metrics, structured tracing, and a durable mock ledger for longer-running delivery tests.
 - Validate the end-to-end idempotency contract against the real helpdesk API before claiming stronger delivery guarantees.
 
