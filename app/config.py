@@ -14,6 +14,7 @@ class Settings(BaseSettings):
         "postgresql+asyncpg://helpdesk:change-me-local-only@db:5432/helpdesk"
     )
     log_level: str = "INFO"
+    run_embedded_worker: bool = False
     llm_provider: Literal["ollama", "openai_compatible"] = "ollama"
     llm_base_url: str = "https://ollama.com"
     llm_model: str = "gemma4:31b"

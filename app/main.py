@@ -1,7 +1,10 @@
 """FastAPI application entry point."""
 
+import asyncio
 import logging
 import secrets
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Annotated
 from uuid import UUID
 
@@ -26,7 +29,28 @@ from app.services.ingest import ingest_ticket
 from app.services.url_safety import is_safe_reply_url
 
 configure_logging(get_settings().log_level)
-app: FastAPI = FastAPI(title="Helpdesk AI")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Optionally run durable background workers inside the API process."""
+    settings = get_settings()
+    if not settings.run_embedded_worker:
+        yield
+        return
+
+    from app.worker import run_workers
+
+    stop_event = asyncio.Event()
+    worker_task = asyncio.create_task(run_workers(settings, stop_event))
+    try:
+        yield
+    finally:
+        stop_event.set()
+        await worker_task
+
+
+app: FastAPI = FastAPI(title="Helpdesk AI", lifespan=lifespan)
 templates = Jinja2Templates(directory="app/templates")
 logger: logging.Logger = logging.getLogger(__name__)
 basic_auth = HTTPBasic(auto_error=False)

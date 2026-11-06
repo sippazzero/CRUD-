@@ -294,17 +294,8 @@ async def worker_loop(
             pass
 
 
-async def main() -> None:
-    """Run configured concurrent workers and stop promptly on container signals."""
-    settings = get_settings()
-    stop_event = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for stop_signal in (signal.SIGTERM, signal.SIGINT):
-        try:
-            loop.add_signal_handler(stop_signal, stop_event.set)
-        except NotImplementedError:
-            signal.signal(stop_signal, lambda _signum, _frame: stop_event.set())
-
+async def run_workers(settings: Settings, stop_event: asyncio.Event) -> None:
+    """Run worker tasks until shutdown, sharing clients and the database pool."""
     generator = LLMClient(settings)
     limiter = PostgresTokenBucket(SessionFactory)
     async with httpx.AsyncClient(follow_redirects=False) as helpdesk_client:
@@ -334,8 +325,24 @@ async def main() -> None:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
     await generator.close()
-    await engine.dispose()
     logger.info("Worker service stopped")
+
+
+async def main() -> None:
+    """Run configured concurrent workers and stop promptly on container signals."""
+    settings = get_settings()
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for stop_signal in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(stop_signal, stop_event.set)
+        except NotImplementedError:
+            signal.signal(stop_signal, lambda _signum, _frame: stop_event.set())
+
+    try:
+        await run_workers(settings, stop_event)
+    finally:
+        await engine.dispose()
 
 
 if __name__ == "__main__":
