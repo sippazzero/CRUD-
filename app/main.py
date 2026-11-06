@@ -4,7 +4,7 @@ import logging
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Form, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import (
     HTMLResponse,
     PlainTextResponse,
@@ -124,6 +124,12 @@ async def receive_helpdesk_webhook(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, str]:
     """Persist and acknowledge an event without performing downstream work."""
+    if not get_settings().is_reply_url_allowed(str(event.reply_url)):
+        raise HTTPException(
+            status_code=422,
+            detail="reply_url host is not in HELPDESK_ALLOWED_REPLY_HOSTS",
+        )
+
     accepted = await ingest_ticket(session, event)
     logger.info(
         "Helpdesk webhook processed",

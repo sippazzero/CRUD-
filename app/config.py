@@ -1,6 +1,7 @@
 """Environment-backed settings for the helpdesk service."""
 
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -28,6 +29,7 @@ class Settings(BaseSettings):
     sender_timeout_seconds: float = 10.0
     sender_max_attempts: int = 5
     sender_lease_seconds: int = 300
+    helpdesk_allowed_reply_hosts: str = "helpdesk-mock"
     mock_failure_rate: float = 0.0
     mock_hang_rate: float = 0.0
     mock_hang_seconds: float = 15.0
@@ -40,6 +42,27 @@ class Settings(BaseSettings):
     def normalize_empty_api_key(cls, value: str | None) -> str | None:
         """Treat an empty Compose environment value as an absent credential."""
         return value or None
+
+    def is_reply_url_allowed(self, url: str) -> bool:
+        """Allow callback requests only to explicitly configured hostnames."""
+        try:
+            parsed_url = urlsplit(url)
+            hostname = parsed_url.hostname
+        except ValueError:
+            return False
+
+        allowed_hosts = {
+            host.strip().lower()
+            for host in self.helpdesk_allowed_reply_hosts.split(",")
+            if host.strip()
+        }
+        return (
+            parsed_url.scheme.lower() in {"http", "https"}
+            and hostname is not None
+            and hostname.lower() in allowed_hosts
+            and parsed_url.username is None
+            and parsed_url.password is None
+        )
 
     model_config = SettingsConfigDict(
         case_sensitive=False,

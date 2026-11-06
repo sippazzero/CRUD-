@@ -44,6 +44,17 @@ async def send_reply(
     """Send one leased reply and persist the outcome only while its lease is owned."""
     idempotency_key = f"reply:{ticket.ticket_id}"
     payload = {"ticket_id": ticket.ticket_id, "message": ticket.draft_text}
+    if not settings.is_reply_url_allowed(ticket.reply_url):
+        await _record_delivery_failure(
+            session_factory,
+            ticket,
+            error="Helpdesk reply host is not in HELPDESK_ALLOWED_REPLY_HOSTS",
+            settings=settings,
+            uniform=uniform,
+            terminal=True,
+        )
+        return False
+
     try:
         if client is None:
             async with httpx.AsyncClient(

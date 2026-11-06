@@ -19,6 +19,8 @@ services:
         sync: false
       - key: LOG_LEVEL
         value: INFO
+      - key: HELPDESK_ALLOWED_REPLY_HOSTS
+        sync: false
 
   - type: worker
     name: helpdesk-worker
@@ -28,6 +30,8 @@ services:
     dockerCommand: python -m app.worker
     envVars:
       - key: DATABASE_URL
+        sync: false
+      - key: HELPDESK_ALLOWED_REPLY_HOSTS
         sync: false
       - key: LLM_API_KEY
         sync: false

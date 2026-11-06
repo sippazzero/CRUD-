@@ -31,8 +31,8 @@ The optional [render.yaml](render.yaml) Blueprint describes a managed PostgreSQL
    Keep it private; the mock's `/deliveries` endpoint has no authentication. Set `MOCK_API_URL` to the API's internal URL plus `/webhooks/helpdesk`. For simulated tickets, use the mock's private service address with `/reply` as `reply_url`.
 6. Set dashboard environment variables:
 
-   - **API:** `DATABASE_URL`, `LOG_LEVEL=INFO`.
-   - **Worker:** the same `DATABASE_URL`; `LLM_API_URL`, `LLM_MODEL`, `LLM_API_KEY` (optional), `LLM_STATIC_FALLBACK_ENABLED=true`, `LLM_TIMEOUT_SECONDS=30`; `WORKER_CONCURRENCY=30`, `WORKER_POLL_SECONDS=1`, `WORKER_LEASE_SECONDS=120`, `WORKER_MAX_ATTEMPTS=5`, `WORKER_BACKOFF_BASE_SECONDS=5`, `WORKER_BACKOFF_MAX_SECONDS=300`; and `SENDER_TIMEOUT_SECONDS=10`, `SENDER_MAX_ATTEMPTS=5`, `SENDER_LEASE_SECONDS=300`.
+   - **API:** `DATABASE_URL`, `LOG_LEVEL=INFO`, and `HELPDESK_ALLOWED_REPLY_HOSTS` set to the actual helpdesk callback hostname(s), comma-separated.
+   - **Worker:** the same `DATABASE_URL` and `HELPDESK_ALLOWED_REPLY_HOSTS`; `LLM_API_URL`, `LLM_MODEL`, `LLM_API_KEY` (optional), `LLM_STATIC_FALLBACK_ENABLED=true`, `LLM_TIMEOUT_SECONDS=30`; `WORKER_CONCURRENCY=30`, `WORKER_POLL_SECONDS=1`, `WORKER_LEASE_SECONDS=120`, `WORKER_MAX_ATTEMPTS=5`, `WORKER_BACKOFF_BASE_SECONDS=5`, `WORKER_BACKOFF_MAX_SECONDS=300`; and `SENDER_TIMEOUT_SECONDS=10`, `SENDER_MAX_ATTEMPTS=5`, `SENDER_LEASE_SECONDS=300`.
    - **Helpdesk mock:** `MOCK_API_URL`, `MOCK_FAILURE_RATE=0`, `MOCK_HANG_RATE=0`, `MOCK_HANG_SECONDS=15`, `MOCK_FAIL_BEFORE_RECORD=0`, `MOCK_DUPLICATE_MODE=false`.
 
    Render services in the same region can communicate over private service hostnames; copy the actual internal addresses from each service's **Connect** panel rather than assuming a hostname. If no LLM key is set, the worker still attempts the provider request and uses the configured static fallback after its simulated delay.

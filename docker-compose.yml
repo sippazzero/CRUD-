@@ -32,6 +32,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-helpdesk}:${POSTGRES_PASSWORD:-change-me-local-only}@db:5432/${POSTGRES_DB:-helpdesk}
       TEST_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-helpdesk}:${POSTGRES_PASSWORD:-change-me-local-only}@db:5432/helpdesk_test
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      HELPDESK_ALLOWED_REPLY_HOSTS: ${HELPDESK_ALLOWED_REPLY_HOSTS:-helpdesk-mock}
     depends_on:
       db:
         condition: service_healthy
@@ -62,6 +63,7 @@ services:
       SENDER_TIMEOUT_SECONDS: ${SENDER_TIMEOUT_SECONDS:-10}
       SENDER_MAX_ATTEMPTS: ${SENDER_MAX_ATTEMPTS:-5}
       SENDER_LEASE_SECONDS: ${SENDER_LEASE_SECONDS:-300}
+      HELPDESK_ALLOWED_REPLY_HOSTS: ${HELPDESK_ALLOWED_REPLY_HOSTS:-helpdesk-mock}
     depends_on:
       db:
         condition: service_healthy

@@ -28,6 +28,9 @@ TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", _DEFAULT_TEST_DATABASE_URL)
 
 # Application modules imported by tests must use the same host-reachable database.
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+os.environ["HELPDESK_ALLOWED_REPLY_HOSTS"] = (
+    "helpdesk.example.com,helpdesk,helpdesk-mock"
+)
 
 
 @pytest_asyncio.fixture(loop_scope="session")

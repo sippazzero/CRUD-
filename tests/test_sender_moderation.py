@@ -320,6 +320,30 @@ async def test_permanent_client_error_fails_without_retry(
 
 
 @pytest.mark.asyncio
+async def test_unapproved_reply_host_is_not_contacted(
+    postgres_engine: AsyncEngine,
+) -> None:
+    """A legacy or directly inserted ticket cannot bypass the callback allowlist."""
+    ticket = await _create_ticket(postgres_engine)
+    async with AsyncSession(postgres_engine) as session:
+        await session.execute(
+            update(Ticket)
+            .where(Ticket.id == ticket.id)
+            .values(reply_url="http://api:8000/health")
+        )
+        await session.commit()
+    mock_app = create_mock_app()
+
+    await _process_once(postgres_engine, mock_app=mock_app)
+
+    saved = await _load_ticket(postgres_engine, ticket.id)
+    assert saved.status == "send_failed"
+    assert saved.delivery_attempts == 1
+    assert mock_app.state.mock.request_keys == []
+    assert await _delivery_count(mock_app) == 0
+
+
+@pytest.mark.asyncio
 async def test_transient_failures_exhaust_delivery_attempt_limit(
     postgres_engine: AsyncEngine,
 ) -> None:

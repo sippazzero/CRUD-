@@ -31,6 +31,8 @@ docker compose up --build
 
 Compose starts PostgreSQL, runs Alembic migrations before serving the API, and starts the API, worker, and mock. The API health check is at <http://localhost:8000/health>, the mock is at <http://localhost:8001/health>, and the operator review page is at <http://localhost:8000/operator/moderation>. Do not expose the operator page publicly without authentication.
 
+`HELPDESK_ALLOWED_REPLY_HOSTS` is a comma-separated host allowlist for webhook `reply_url` values and sender requests. The local default allows only `helpdesk-mock`; add the exact helpdesk callback hostname in `.env` before using a real helpdesk.
+
 Run the full integration suite against the Compose PostgreSQL service:
 
 ```sh
@@ -62,6 +64,8 @@ The script sends 500 distinct ticket events plus 50 duplicate deliveries over 60
 **PostgreSQL queue, not Redis or RabbitMQ.** Tickets and retry schedules are already durable in PostgreSQL, so workers claim them with `FOR UPDATE SKIP LOCKED` and short-lived leases. This avoids another broker and supports recovery after a worker crash; the stated volume does not justify additional infrastructure.
 
 **Fast, idempotent webhook.** The handler validates the payload and performs one `INSERT ... ON CONFLICT DO NOTHING` transaction, then returns `200`; it does not call the LLM or another service. The unique event ID makes concurrent retries a successful no-op rather than duplicate work.
+
+**Restricted reply destinations.** The API rejects callback URLs whose hostname is not explicitly allowed, and the sender repeats the check before outbound requests. This prevents untrusted webhook payloads from using the sender as a path to internal network services.
 
 **Global 60-request/minute limit.** A one-token-per-second bucket is persisted and transactionally coordinated in PostgreSQL, so it remains shared across concurrent worker tasks and restarts. Worker concurrency is separately configurable to bound simultaneous slow provider calls.
 

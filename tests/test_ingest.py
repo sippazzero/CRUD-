@@ -94,6 +94,42 @@ async def test_invalid_payload_returns_422_without_persisting(
 
 
 @pytest.mark.asyncio
+async def test_untrusted_reply_host_returns_422_without_persisting(
+    api_client: httpx.AsyncClient,
+    postgres_engine: AsyncEngine,
+) -> None:
+    """Webhook callers cannot direct the sender to an unapproved network host."""
+    payload = {
+        **PAYLOAD,
+        "event_id": "evt_untrusted_reply_host",
+        "reply_url": "http://api:8000/health",
+    }
+
+    response = await api_client.post(WEBHOOK_PATH, json=payload)
+
+    assert response.status_code == 422
+    assert await _ticket_count(postgres_engine, payload["event_id"]) == 0
+
+
+@pytest.mark.asyncio
+async def test_allowed_reply_host_is_accepted(
+    api_client: httpx.AsyncClient,
+    postgres_engine: AsyncEngine,
+) -> None:
+    """Configured helpdesk hosts remain valid webhook destinations."""
+    payload = {
+        **PAYLOAD,
+        "event_id": "evt_allowed_reply_host",
+        "reply_url": "https://helpdesk.example.com/tickets/T-test/replies",
+    }
+
+    response = await api_client.post(WEBHOOK_PATH, json=payload)
+
+    assert response.status_code == 200
+    assert await _ticket_count(postgres_engine, payload["event_id"]) == 1
+
+
+@pytest.mark.asyncio
 async def test_webhook_response_is_under_two_seconds(
     api_client: httpx.AsyncClient,
 ) -> None:
