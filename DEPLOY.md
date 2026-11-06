@@ -1,59 +1,70 @@
-# Deployment preparation
+# Railway deployment preparation
 
-This guide prepares the service for Render or Railway; it does not deploy anything. Configure both operator Basic Auth variables before any public deployment and serve the API over HTTPS. Do not commit provider credentials, operator passwords, or database URLs; enter them in the hosting dashboard.
+This repository is prepared for Railway, but no service has been deployed. The Railway CLI is not installed in the current environment, and no Railway dashboard login is available, so public URLs and live deployment checks cannot be produced here.
 
-## Render
+## Architecture and trade-offs
 
-The optional [render.yaml](render.yaml) Blueprint describes a managed PostgreSQL database and three services built from the same repository `Dockerfile`: a public API, a background worker, and a private helpdesk mock. It uses `sync: false` entries for values that must be supplied in the dashboard. Blueprint variables do not transform Render's PostgreSQL connection-string scheme, so set `DATABASE_URL` manually as described below.
+Use one always-on Railway web service for FastAPI and its embedded worker, plus Railway-managed PostgreSQL and a separate mock service. Set `RUN_EMBEDDED_WORKER=true` only on the API service; the default is false and Docker Compose keeps its independent worker container. The API and worker share a process and resource budget, so a process restart interrupts an in-flight call; ticket state and leases remain in PostgreSQL, and an expired lease lets work resume after restart. One web process avoids separate API/worker service overhead but does not provide worker/API fault isolation or independent scaling.
 
-1. Push the repository to GitHub and connect it to Render. Create a new Blueprint from the repository root and review the resources before applying them. Alternatively, create the resources manually using the service settings below.
-2. Create a managed PostgreSQL 16 database in the same Render region as the services. In its **Connect** panel, copy the internal connection URL. Set the scheme to `postgresql+asyncpg://` (instead of `postgresql://`) and place the resulting URL in the API and worker `DATABASE_URL` dashboard variables. Treat the URL as a secret.
-3. Configure the API as a **Web Service** using the repository root and `Dockerfile`. Set its start command to:
+The mock is a separate, optional demo service. Its `/deliveries` ledger is in memory and its endpoints have no authentication; do not treat it as a production helpdesk or expose customer data through it. If a public domain is enabled for acceptance testing, remove the mock service or disable its public domain afterwards. `HELPDESK_MOCK_HOST` must exactly match the hostname used in the webhook `reply_url`; this is the deliberate callback-validation exception for the mock.
 
-   ```sh
-   sh -c 'alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"'
-   ```
+PostgreSQL is the only durable queue/state store. No SQLite or local filesystem state is required. The API startup command runs Alembic migrations before Uvicorn, and binds to Railway's `PORT`. The health check is `/health`.
 
-   Set the health check path to `/health`. Migrations run before Uvicorn starts; if migration fails, the API process will not start.
-4. Configure the worker as a **Background Worker** from the same repository and `Dockerfile`. Use:
+Railway currently lists a Free plan with $1/month usage credit, a per-service maximum of 0.5 GB RAM, 1 vCPU and one replica. Treat it as a temporary demo tier: exhausting credit may interrupt workloads, and it is not an always-on production guarantee. Railway's persistent services are not documented as sleeping after inbound inactivity; deploys, failures, or credit exhaustion can still cause downtime. The Hobby plan is currently $5/month and includes $5 of resource usage; usage above that is billed. Verify current limits and pricing in Railway before deployment. See [Railway plans](https://docs.railway.com/pricing/plans) and [persistent services](https://docs.railway.com/services).
 
-   ```sh
-   python -m app.worker
-   ```
+## Click-by-click Railway setup
 
-   Set one worker instance initially. All worker replicas share the PostgreSQL rate limiter, but they also add database contention and should not be scaled without measurement.
-5. Configure the mock as a **Private Service** from the same repository and `Dockerfile`. Use:
-
-   ```sh
-   sh -c 'exec uvicorn app.helpdesk_mock:app --host 0.0.0.0 --port "${PORT:-10000}"'
-   ```
-
-   Keep it private; the mock's `/deliveries` endpoint has no authentication. Set `MOCK_API_URL` to the API's internal URL plus `/webhooks/helpdesk`. For simulated tickets, use the mock's private service address with `/reply` as `reply_url`.
-6. Set dashboard environment variables:
-
-   - **API:** `DATABASE_URL`, `LOG_LEVEL=INFO`, `HELPDESK_MOCK_HOST` set to the private mock service hostname, and both `OPERATOR_USERNAME` and `OPERATOR_PASSWORD` set to unique credentials.
-   - **Worker:** the same `DATABASE_URL` and `HELPDESK_MOCK_HOST`; `LLM_PROVIDER=ollama`, `LLM_BASE_URL=https://ollama.com`, `LLM_MODEL=gemma4:31b`, and `LLM_API_KEY` (optional for the static fallback); `LLM_STATIC_FALLBACK_ENABLED=true`, `LLM_TIMEOUT_SECONDS=30`; `WORKER_CONCURRENCY=30`, `WORKER_POLL_SECONDS=1`, `WORKER_LEASE_SECONDS=120`, `WORKER_MAX_ATTEMPTS=5`, `WORKER_BACKOFF_BASE_SECONDS=5`, `WORKER_BACKOFF_MAX_SECONDS=300`; and `SENDER_TIMEOUT_SECONDS=10`, `SENDER_MAX_ATTEMPTS=5`, `SENDER_LEASE_SECONDS=300`.
-   - **Helpdesk mock:** `MOCK_API_URL`, `MOCK_FAILURE_RATE=0`, `MOCK_HANG_RATE=0`, `MOCK_HANG_SECONDS=15`, `MOCK_FAIL_BEFORE_RECORD=0`, `MOCK_DUPLICATE_MODE=false`.
-
-   Render services in the same region can communicate over private service hostnames; copy the actual internal addresses from each service's **Connect** panel rather than assuming a hostname. If no LLM key is set, the worker still attempts the provider request and uses the configured static fallback after its simulated delay.
-7. Deploy the services and wait for the API health check to pass. Copy the API service's public `onrender.com` address from its dashboard and give the helpdesk this webhook URL:
+1. Sign in at <https://railway.com>, create a project, choose **Deploy from GitHub repo**, authorize Railway's GitHub app if prompted, and select `sippazzero/CRUD-` on `main`.
+2. Select the API service. In **Settings → Build**, use the repository `Dockerfile`. The committed [`railway.json`](railway.json) supplies the Dockerfile builder, migration-plus-Uvicorn start command, `/health` check and restart policy. Railway documents config-as-code as deprecated, with existing support only through 2026-12-01; review the service's **Settings → Deploy** values directly and set them in the dashboard if the file is no longer honored.
+3. In the project canvas, click **New → Database → PostgreSQL**. Keep the database private. On the API service's **Variables** page add `DATABASE_URL` using a Railway reference to the PostgreSQL service's `DATABASE_URL`. The application converts Railway's `postgres://` or `postgresql://` URL scheme to SQLAlchemy's asyncpg driver scheme at startup.
+4. On the API service's **Variables** page, add these environment variable names:
 
    ```text
-   https://<api-service-name>.onrender.com/webhooks/helpdesk
+   RUN_EMBEDDED_WORKER
+   DATABASE_URL
+   LOG_LEVEL
+   HELPDESK_MOCK_HOST
+   OPERATOR_USERNAME
+   OPERATOR_PASSWORD
+   LLM_PROVIDER
+   LLM_BASE_URL
+   LLM_MODEL
+   LLM_API_KEY
+   LLM_STATIC_FALLBACK_ENABLED
+   LLM_TIMEOUT_SECONDS
+   WORKER_CONCURRENCY
+   WORKER_POLL_SECONDS
+   WORKER_LEASE_SECONDS
+   WORKER_MAX_ATTEMPTS
+   WORKER_BACKOFF_BASE_SECONDS
+   WORKER_BACKOFF_MAX_SECONDS
+   SENDER_TIMEOUT_SECONDS
+   SENDER_MAX_ATTEMPTS
+   SENDER_LEASE_SECONDS
    ```
 
-   The same public API also serves `/operator/moderation`; Basic Auth is enabled by the required dashboard credentials. Use the same credentials for approve/reject actions and do not distribute them in webhook configuration.
+   Set `OPERATOR_PASSWORD` using a generated strong value in Railway's secure Variables form, never in the repository. Set `LLM_API_KEY` through the same secure form. Do not copy `.env` into Railway. For the Free plan's constrained per-service resources, start with `WORKER_CONCURRENCY=2`; increase only after observing memory and CPU. The database-backed rate limiter remains the cap of 60 provider requests per minute.
+5. To provide the demo mock, choose **New → GitHub Repo** and select the same repository again. In the mock service's **Settings → Deploy**, override its start command to:
 
-## Railway alternative
+   ```sh
+   uvicorn app.helpdesk_mock:app --host 0.0.0.0 --port $PORT
+   ```
 
-Create a Railway project with a managed PostgreSQL service, then create three services from the same GitHub repository so each builds from the root `Dockerfile`. Set the API start command to the migration-plus-Uvicorn command above, the worker command to `python -m app.worker`, and the mock command to the Uvicorn command above. Configure the same per-service environment variables listed for Render, using Railway's private service addresses and a `postgresql+asyncpg://` `DATABASE_URL`; set both operator credentials in the dashboard and do not commit generated credentials. Generate a public domain for the API service and append `/webhooks/helpdesk` to form the webhook URL. The operator page uses HTTP Basic Auth and must be served only over HTTPS.
+   Add `MOCK_API_URL` pointing to the API service's private Railway hostname and its listening port followed by `/webhooks/helpdesk`. Set `MOCK_FAILURE_RATE`, `MOCK_HANG_RATE`, `MOCK_HANG_SECONDS`, `MOCK_FAIL_BEFORE_RECORD`, and `MOCK_DUPLICATE_MODE` to the desired demo behavior. The API image's Railway start command runs migrations; the mock service must override that command.
+6. Deploy the API and mock. In API **Settings → Networking → Public Networking**, click **Generate Domain**. In the mock's networking settings, generate a domain only if you need public acceptance-test access to `/deliveries`; this exposes unauthenticated demo endpoints. Copy the mock domain's hostname into the API's `HELPDESK_MOCK_HOST`.
+7. Set the API networking health check path to `/health`, if not already populated from config. Wait until the API reports healthy, then record:
 
-## Platform references
+   ```text
+   Webhook: https://<api-domain>/webhooks/helpdesk
+   Operator: https://<api-domain>/operator/moderation
+   Mock:     https://<mock-domain>
+   ```
 
-- [Render Docker deploys](https://render.com/docs/docker)
-- [Render Blueprints](https://render.com/docs/blueprint-spec)
-- [Render managed PostgreSQL](https://render.com/docs/postgresql-creating-connecting)
-- [Render private networking](https://render.com/docs/private-network)
-- [Render health checks](https://render.com/docs/health-checks)
-- [Railway Dockerfiles](https://docs.railway.com/builds/dockerfiles)
-- [Railway start commands](https://docs.railway.com/builds/build-and-start-commands)
+   These are URL templates only, not live deployment URLs. The hosted operator page requires HTTP Basic Auth; use the configured `OPERATOR_USERNAME` and `OPERATOR_PASSWORD` over HTTPS.
+8. For a live acceptance check, POST a webhook with `reply_url` set to `https://<mock-domain>/reply`, wait for `draft_ready`, open the operator URL with Basic Auth, approve exactly one ticket, then inspect `https://<mock-domain>/deliveries`. Remove the mock public domain after testing if public ledger access is not intended.
+
+Railway's documented [public networking](https://docs.railway.com/networking/public-networking) provides a Railway domain and managed TLS. Railway variables are managed in the service's **Variables** page; see [Using Variables](https://docs.railway.com/variables) and [PostgreSQL connections](https://docs.railway.com/databases/postgresql).
+
+## If using Render instead
+
+The existing [`render.yaml`](render.yaml) describes a separate API, worker, and mock plus managed PostgreSQL. It is an alternative architecture, not the preferred single-web-service setup in this guide. A Free Render web service spins down after 15 minutes without inbound traffic and may take about one minute to spin back up; free PostgreSQL expires after 30 days. Therefore Render Free is unsuitable for an always-awake webhook. See [Render Free](https://render.com/docs/free). Use paid persistent services if choosing Render for this workload.

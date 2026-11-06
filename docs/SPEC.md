@@ -7,11 +7,11 @@ Build a small, durable helpdesk-ticket workflow that generates an LLM-assisted r
 ## Components and runtime
 
 - **API:** FastAPI handles `POST /webhooks/helpdesk`, `GET /health`, and the server-rendered operator pages and actions.
-- **Worker:** A separate container running an async loop from the same codebase. Run one worker instance initially; the token-bucket state persisted in PostgreSQL enforces the LLM limit across the service and worker restarts. PostgreSQL also persists all work and retry state.
+- **Worker:** A separate container running an async loop from the same codebase in Docker Compose. For a small hosted setup, `RUN_EMBEDDED_WORKER=true` runs the same worker loop in the API process. The default is off. Embedded hosting shares API/worker resources and restart fate; PostgreSQL still persists all work and retry state, and the rate-limit bucket remains shared across processes.
 - **PostgreSQL 16:** Primary store for tickets, webhook event IDs, knowledge-base articles, drafts, queue scheduling, and leases.
 - **Helpdesk mock:** A separate container accepts simulated webhook deliveries and reply submissions. It implements idempotency-key handling and configurable faults so delivery retries can be tested.
 
-Run all components with Docker Compose. Configure secrets and service settings through environment variables; commit `.env.example`, never secret values.
+Run the local components with Docker Compose. Configure secrets and service settings through environment variables; commit `.env.example`, never secret values. Hosted deployments bind the API to the platform-provided `PORT`, run migrations before serving, and use managed PostgreSQL rather than local disk. The current Railway preparation is in `DEPLOY.md`; it has not been deployed.
 
 ## Webhook acceptance and idempotency
 

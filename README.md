@@ -10,7 +10,7 @@ Helpdesk mock ──webhook──> API ──persist──> PostgreSQL <──cl
       └──── reply API ──────┴─────────────────┴── operator UI ─┘
 ```
 
-The API handles webhook ingestion and serves the server-rendered moderation page. The separate worker retrieves knowledge, calls the configured LLM provider, and delivers approved replies. PostgreSQL stores tickets, articles, retry schedules, worker leases, and the shared rate-limit bucket; the helpdesk mock is a separate Compose service.
+In Docker Compose, the API handles webhook ingestion and moderation while a separate worker retrieves knowledge, calls the configured LLM provider, and delivers approved replies. PostgreSQL stores tickets, articles, retry schedules, worker leases, and the shared rate-limit bucket. For a small hosted deployment, `RUN_EMBEDDED_WORKER=true` runs the worker in the API process; PostgreSQL remains the durable queue, and the helpdesk mock is a separate service. This saves one app service but shares CPU/memory and restart fate between API and worker, so it is a small-demo trade-off rather than independent scaling or fault isolation.
 
 ```text
 new -> generating -> draft_ready -> approved -> sending -> sent
@@ -51,7 +51,13 @@ bash scripts/demo.sh
 
 The demo leaves the Compose stack running so the reviewer can inspect the operator page and mock delivery log.
 
-Deployment preparation for Render and Railway is in [DEPLOY.md](DEPLOY.md); the service has not been deployed.
+Deployment preparation for Railway is in [DEPLOY.md](DEPLOY.md). **No public deployment has been created.** The Railway CLI is not installed here, so no account login or deployment could be verified. Therefore there are currently no public webhook, operator, or mock URLs, and no public behavior has been verified. After deployment, record the provider URLs here:
+
+- Webhook: not deployed (`https://<api-domain>/webhooks/helpdesk`)
+- Operator page: not deployed (`https://<api-domain>/operator/moderation`)
+- Helpdesk mock: not deployed (`https://<mock-domain>`)
+
+Railway's documented Free plan lists $1/month in usage credit, with per-service maximums including 0.5 GB RAM, 1 vCPU, and one replica. This is not an always-on production guarantee: credit exhaustion can interrupt the service. Railway persistent services are not documented as sleeping after inactivity, but deploys, failures, or exhausted credits can cause downtime. The Hobby plan is currently $5/month and includes $5 of resource usage; actual usage may exceed that. Limits/pricing are time-sensitive; see [DEPLOY.md](DEPLOY.md) and confirm Railway's current plan page before deploying. The API and embedded worker share one container and resource budget; the separate mock is intentionally a demo service, not a production helpdesk.
 
 The independent runtime and code-review results, including known gaps, are in [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md).
 
