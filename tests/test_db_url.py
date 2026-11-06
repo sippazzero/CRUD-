@@ -69,3 +69,34 @@ def test_settings_reject_invalid_database_url(
     """Invalid managed database URLs fail with an actionable settings error."""
     with pytest.raises(ValidationError, match=message):
         Settings(database_url=database_url)
+
+
+@pytest.mark.parametrize(
+    "raw_url",
+    [
+        "postgres://user:pass@db:5432/helpdesk",
+        "postgresql://user:pass@db:5432/helpdesk",
+        "postgresql+asyncpg://user:pass@db:5432/helpdesk",
+    ],
+)
+def test_alembic_reads_same_normalized_database_url_as_app(
+    raw_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Alembic configuration receives the app's normalized asyncpg DATABASE_URL."""
+    from alembic.config import Config
+    from app.config import get_settings
+
+    monkeypatch.setenv("DATABASE_URL", raw_url)
+    get_settings.cache_clear()
+    try:
+        settings = get_settings()
+        expected = "postgresql+asyncpg://user:pass@db:5432/helpdesk"
+        assert settings.database_url == expected
+
+        config = Config("alembic.ini")
+        database_url = settings.database_url.replace("%", "%%")
+        config.set_main_option("sqlalchemy.url", database_url)
+        assert config.get_main_option("sqlalchemy.url") == expected
+    finally:
+        get_settings.cache_clear()

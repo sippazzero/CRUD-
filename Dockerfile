@@ -14,10 +14,11 @@ COPY tests ./tests
 
 RUN pip install --no-cache-dir ".[dev]" \
     && groupadd --system app \
-    && useradd --system --gid app --create-home app
+    && useradd --system --gid app --create-home app \
+    && chmod +x scripts/start.sh
 
 USER app
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port \"${PORT:-8000}\""]
+CMD ["/app/scripts/start.sh"]
