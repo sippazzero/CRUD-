@@ -18,7 +18,8 @@ class Settings(BaseSettings):
     llm_api_key: str | None = None
     llm_static_fallback_enabled: bool = True
     llm_timeout_seconds: float = 30.0
-    worker_concurrency: int = 2
+    # Thirty tasks can keep the one-per-second bucket fed even at 30-second latency.
+    worker_concurrency: int = 30
     worker_poll_seconds: float = 1.0
     worker_lease_seconds: int = 120
     worker_max_attempts: int = 5

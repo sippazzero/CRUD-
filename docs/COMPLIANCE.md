@@ -30,11 +30,11 @@ This audit maps the requirements in [TASK.md](TASK.md) to the implementation and
 - Direct Python dependency versions are exact in [pyproject.toml](../pyproject.toml); the Python and PostgreSQL base images are pinned by digest in [Dockerfile](../Dockerfile) and [docker-compose.yml](../docker-compose.yml).
 - `.env` is ignored by [.gitignore](../.gitignore); `.env.example` contains local-only placeholders rather than service credentials. The history scan found no high-confidence API-token or private-key patterns. Earlier commits do retain a generic local-development database password; it was not a deployed credential and was replaced in the current tree. History was not rewritten.
 - The tracked-file review found no abandoned application modules or unused data files. Alembic revisions, package initializers, templates, and tests are runtime or verification inputs and remain in use.
-- The 2026-11-06 local load test submitted 500 distinct events plus 50 duplicate deliveries over 60 seconds. All 500 rows reached `sent` in 8m50.47s; webhook p95 was 0.013s and maximum latency was 0.074s. The run used `WORKER_CONCURRENCY=60`, rather than the default of 2, and the no-key fallback. This demonstrates the target for that configuration only; default-concurrency and real-provider throughput remain unverified.
+- The 2026-11-06 local load test submitted 500 distinct events plus 50 duplicate deliveries over 60 seconds. All 500 rows reached `sent` in 8m50.47s; webhook p95 was 0.013s and maximum latency was 0.074s. The run used `WORKER_CONCURRENCY=60`, rather than the default of 30, and the no-key fallback. The result is close to the roughly 8m20 lower bound imposed by 60 provider requests per minute; it demonstrates the target for that configuration only.
 
 ## Known gaps and limits
 
 - The load test completed the stated peak scenario within 10 minutes in one local run, but it does not certify performance on production hardware or with a real provider. Default worker concurrency and representative deployment conditions still need measurement (**PARTIAL**).
-- A public deployment was not requested as a hard requirement and is not included (**MISSING**).
+- Deployment instructions are prepared in [DEPLOY.md](../DEPLOY.md); the service has not been deployed publicly (**PREPARED, NOT DEPLOYED**).
 - The mock's delivery ledger is process-local and clears on restart. The receiver must durably retain idempotency keys in production; see [SPEC.md](SPEC.md).
 - Operator authentication and multi-tenant isolation are outside the assignment scope. Do not expose the moderation page publicly without adding access control.

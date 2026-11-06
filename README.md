@@ -53,7 +53,7 @@ Run the measured webhook load test from the running API container:
 docker compose exec api python scripts/load_test.py --duration-seconds 60
 ```
 
-The script sends 500 distinct ticket events plus 50 duplicate deliveries over 60 seconds, auto-approves resulting drafts through the operator endpoint, and polls the run's database rows until they reach `sent`, `send_failed`, `failed`, or `rejected`. Use `--duration-seconds 600` for a 10-minute arrival window. The default worker concurrency is intentionally small; for a throughput run, set `WORKER_CONCURRENCY=60` in `.env` before starting Compose. The no-key LLM fallback still attempts the configured provider and waits 5–30 seconds per draft, so processing can continue after the arrival window. The script enforces the two-second webhook budget and reports per-run rows and status counts without deleting existing data.
+The script sends 500 distinct ticket events plus 50 duplicate deliveries over 60 seconds, auto-approves resulting drafts through the operator endpoint, and polls the run's database rows until they reach `sent`, `send_failed`, `failed`, or `rejected`. Use `--duration-seconds 600` for a 10-minute arrival window. The worker default is 30 concurrent tasks; the measured run used `WORKER_CONCURRENCY=60`. The no-key LLM fallback still attempts the configured provider and waits 5–30 seconds per draft, so processing can continue after the arrival window. The script enforces the two-second webhook budget and reports per-run rows and status counts without deleting existing data.
 
 ## Design decisions
 
@@ -69,9 +69,9 @@ The script sends 500 distinct ticket events plus 50 duplicate deliveries over 60
 
 ## Load-test results
 
-One local Compose run on 2026-11-06 sent 500 unique tickets plus 50 duplicate webhook deliveries over 60 seconds. With `WORKER_CONCURRENCY=60`, all 500 persisted rows reached `sent`; the database timestamps show 8m50.47s from first ticket creation to the last delivery. Webhook latency was 0.013s at p95 and 0.074s maximum, both below the two-second requirement.
+One local Compose run on 2026-11-06 sent 500 unique tickets plus 50 duplicate webhook deliveries over 60 seconds. With `WORKER_CONCURRENCY=60`, all 500 persisted rows reached `sent`; the database timestamps show 8m50.47s from first ticket creation to the last delivery. Webhook latency was 0.013s at p95 and 0.074s maximum, both below the two-second requirement. The run finished in about 8m50 because the 60 requests/minute LLM limit makes about 8m20 the theoretical minimum; the rate limiter held the limit and no ticket was lost.
 
-This is one local run, not a production capacity guarantee. Worker concurrency was raised from the default of 2 to 60, and the no-key fallback still attempts the configured provider before its 5–30 second delay. The result demonstrates the 500-ticket/10-minute target under that test configuration; default-concurrency and real-provider throughput remain unmeasured.
+This is one local run, not a production capacity guarantee. Worker concurrency was raised from the default of 30 to 60, and the no-key fallback still attempts the configured provider before its 5–30 second delay. The result demonstrates the 500-ticket/10-minute target under that test configuration; default-concurrency and real-provider throughput remain unmeasured.
 
 ## Delivery guarantees and limits
 
