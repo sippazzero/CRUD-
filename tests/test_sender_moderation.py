@@ -18,13 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from starlette.types import ASGIApp
 
 
-class AllowAllLimiter:
-    """Keep these delivery tests independent of LLM rate-limit waiting."""
-
-    async def acquire(self) -> None:
-        """Allow processing to continue immediately."""
-
-
 class UnusedGenerator:
     """Fail if a delivery-only fixture unexpectedly enters draft generation."""
 
@@ -199,7 +192,6 @@ async def _process_once(
         return await process_next(
             async_sessionmaker(postgres_engine, expire_on_commit=False),
             UnusedGenerator(),
-            AllowAllLimiter(),
             settings or _settings(),
             helpdesk_client=client,
         )

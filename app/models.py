@@ -1,10 +1,11 @@
 """SQLAlchemy models for durable ticket processing and knowledge articles."""
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
     Computed,
+    Date,
     DateTime,
     Float,
     Index,
@@ -153,3 +154,12 @@ class LLMRateLimitState(Base):
         DateTime(timezone=True),
         nullable=False,
     )
+
+
+class LLMDailyCallUsage(Base):
+    """Count provider-call reservations for each UTC calendar day."""
+
+    __tablename__ = "llm_daily_call_usage"
+
+    utc_day: Mapped[date] = mapped_column(Date, primary_key=True)
+    call_count: Mapped[int] = mapped_column(Integer, nullable=False)

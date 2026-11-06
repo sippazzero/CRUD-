@@ -36,6 +36,7 @@ services:
       HELPDESK_MOCK_HOST: ${HELPDESK_MOCK_HOST:-helpdesk-mock}
       OPERATOR_USERNAME: ${OPERATOR_USERNAME:-}
       OPERATOR_PASSWORD: ${OPERATOR_PASSWORD:-}
+      LLM_DAILY_CALL_CAP: ${LLM_DAILY_CALL_CAP:-300}
     depends_on:
       db:
         condition: service_healthy
@@ -57,6 +58,7 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_STATIC_FALLBACK_ENABLED: ${LLM_STATIC_FALLBACK_ENABLED:-true}
       LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-30}
+      LLM_DAILY_CALL_CAP: ${LLM_DAILY_CALL_CAP:-300}
       # Match the 60 RPM bucket at the provider's 30-second latency ceiling.
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-30}
       WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-1}

@@ -25,7 +25,7 @@ from app.services.queue import (
     recover_stuck,
     recover_stuck_sending,
 )
-from app.services.rate_limit import PostgresTokenBucket
+from app.services.rate_limit import PostgresDailyCallQuota, PostgresTokenBucket
 from app.services.sender import send_reply
 
 configure_logging(get_settings().log_level)
@@ -41,13 +41,6 @@ class DraftGenerator(Protocol):
         articles: list[KnowledgeArticle],
     ) -> GeneratedDraft:
         """Return draft text and the stable slugs of its evidence."""
-
-
-class RequestLimiter(Protocol):
-    """Contract for service-wide request throttling."""
-
-    async def acquire(self) -> None:
-        """Wait until the next provider request is permitted."""
 
 
 Uniform = Callable[[float, float], float]
@@ -71,7 +64,6 @@ def retry_delay(
 async def process_next(
     session_factory: SessionFactoryType,
     generator: DraftGenerator,
-    limiter: RequestLimiter,
     settings: Settings,
     *,
     uniform: Uniform = random.uniform,
@@ -140,7 +132,6 @@ async def process_next(
     try:
         async with session_factory() as session:
             articles = await find_relevant_articles(session, message)
-        await limiter.acquire()
         draft = await generator.generate(message, articles)
     except Exception as error:
         await _record_failure(
@@ -250,7 +241,6 @@ async def worker_loop(
     stop_event: asyncio.Event,
     session_factory: SessionFactoryType,
     generator: DraftGenerator,
-    limiter: RequestLimiter,
     settings: Settings,
     helpdesk_client: httpx.AsyncClient,
 ) -> None:
@@ -272,7 +262,6 @@ async def worker_loop(
             if await process_next(
                 session_factory,
                 generator,
-                limiter,
                 settings,
                 helpdesk_client=helpdesk_client,
             ):
@@ -296,8 +285,12 @@ async def worker_loop(
 
 async def run_workers(settings: Settings, stop_event: asyncio.Event) -> None:
     """Run worker tasks until shutdown, sharing clients and the database pool."""
-    generator = LLMClient(settings)
     limiter = PostgresTokenBucket(SessionFactory)
+    generator = LLMClient(
+        settings,
+        daily_call_quota=PostgresDailyCallQuota(SessionFactory),
+        request_limiter=limiter,
+    )
     async with httpx.AsyncClient(follow_redirects=False) as helpdesk_client:
         tasks = [
             asyncio.create_task(
@@ -306,7 +299,6 @@ async def run_workers(settings: Settings, stop_event: asyncio.Event) -> None:
                     stop_event,
                     SessionFactory,
                     generator,
-                    limiter,
                     settings,
                     helpdesk_client,
                 ),

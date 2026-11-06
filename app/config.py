@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     llm_api_key: str | None = None
     llm_static_fallback_enabled: bool = True
     llm_timeout_seconds: float = 30.0
+    llm_daily_call_cap: int = Field(default=300, ge=0)
     # Thirty tasks can keep the one-per-second bucket fed even at 30-second latency.
     worker_concurrency: int = 30
     worker_poll_seconds: float = 1.0

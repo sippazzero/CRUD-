@@ -14,13 +14,6 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 
-class AllowAllLimiter:
-    """Keep worker-flow tests independent of provider rate waiting."""
-
-    async def acquire(self) -> None:
-        """Allow the test's single provider request immediately."""
-
-
 class FailingGenerator:
     """Represent a provider failure while preserving the generator contract."""
 
@@ -71,7 +64,6 @@ async def test_failed_generation_retries_then_fails_at_attempt_limit(
     processed = await process_next(
         session_factory,
         FailingGenerator(),
-        AllowAllLimiter(),
         settings,
         uniform=lambda minimum, maximum: maximum,
     )
@@ -96,7 +88,6 @@ async def test_failed_generation_retries_then_fails_at_attempt_limit(
     await process_next(
         session_factory,
         FailingGenerator(),
-        AllowAllLimiter(),
         settings,
         uniform=lambda minimum, maximum: maximum,
     )
@@ -140,6 +131,7 @@ async def test_webhook_ticket_becomes_draft_ready(
         llm_base_url="https://provider.example",
         llm_api_key=None,
         llm_static_fallback_enabled=True,
+        llm_daily_call_cap=0,
     )
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(provider_attempt)
@@ -153,7 +145,6 @@ async def test_webhook_ticket_becomes_draft_ready(
         processed = await process_next(
             async_sessionmaker(postgres_engine, expire_on_commit=False),
             generator,
-            AllowAllLimiter(),
             settings,
         )
     assert processed

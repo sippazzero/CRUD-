@@ -5,6 +5,7 @@ import logging
 import random
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from typing import Protocol
 
 import httpx
 
@@ -12,6 +13,20 @@ from app.config import Settings
 from app.models import KnowledgeArticle
 
 logger = logging.getLogger(__name__)
+
+
+class DailyCallQuota(Protocol):
+    """Reserve shared provider-call capacity before making an HTTP request."""
+
+    async def try_acquire(self, cap: int) -> bool:
+        """Return whether this process may make one provider request today."""
+
+
+class RequestRateLimiter(Protocol):
+    """Wait for a service-wide provider request slot."""
+
+    async def acquire(self) -> None:
+        """Wait until a request slot is available."""
 
 
 @dataclass(frozen=True)
@@ -32,6 +47,8 @@ class LLMClient:
         client: httpx.AsyncClient | None = None,
         uniform: Callable[[float, float], float] = random.uniform,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        daily_call_quota: DailyCallQuota | None = None,
+        request_limiter: RequestRateLimiter | None = None,
     ) -> None:
         """Configure HTTP behavior and injectable test delay sources."""
         self._settings = settings
@@ -39,6 +56,8 @@ class LLMClient:
         self._owns_client = client is None
         self._uniform = uniform
         self._sleep = sleep
+        self._daily_call_quota = daily_call_quota
+        self._request_limiter = request_limiter
 
     async def close(self) -> None:
         """Close the HTTP client only when this instance created it."""
@@ -52,15 +71,32 @@ class LLMClient:
     ) -> GeneratedDraft:
         """Call the provider with a finite timeout and return a cited draft.
 
-        The no-key fallback is centralized here: it still attempts the real
-        provider request, then substitutes a bounded static reply when enabled.
+        The no-key fallback still attempts the provider when the daily quota
+        allows it, then substitutes a bounded static reply when enabled.
         """
+        if self._settings.llm_daily_call_cap > 0:
+            if self._daily_call_quota is None:
+                raise RuntimeError(
+                    "LLM daily call quota is required when the cap is enabled"
+                )
+            if not await self._daily_call_quota.try_acquire(
+                self._settings.llm_daily_call_cap
+            ):
+                logger.warning(
+                    "Daily LLM call cap reached; using static fallback",
+                    extra={
+                        "daily_call_cap": self._settings.llm_daily_call_cap,
+                    },
+                )
+                await self._sleep(self._uniform(5.0, 30.0))
+                return self._static_draft(articles)
+
         if (
             self._settings.llm_api_key is None
             and self._settings.llm_static_fallback_enabled
         ):
             try:
-                await self._request(message, articles)
+                await self._request_with_limit(message, articles)
             except (
                 httpx.HTTPError,
                 ValueError,
@@ -75,11 +111,21 @@ class LLMClient:
             await self._sleep(self._uniform(5.0, 30.0))
             return self._static_draft(articles)
 
-        text = await self._request(message, articles)
+        text = await self._request_with_limit(message, articles)
         return GeneratedDraft(
             text=text,
             cited_article_slugs=[article.slug for article in articles],
         )
+
+    async def _request_with_limit(
+        self,
+        message: str,
+        articles: Sequence[KnowledgeArticle],
+    ) -> str:
+        """Throttle only requests that passed the daily provider-call quota."""
+        if self._request_limiter is not None:
+            await self._request_limiter.acquire()
+        return await self._request(message, articles)
 
     async def _request(
         self,
