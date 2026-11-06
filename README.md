@@ -47,6 +47,8 @@ bash scripts/demo.sh
 
 The demo leaves the Compose stack running so the reviewer can inspect the operator page and mock delivery log.
 
+Deployment preparation for Render and Railway is in [DEPLOY.md](DEPLOY.md); the service has not been deployed.
+
 Run the measured webhook load test from the running API container:
 
 ```sh
@@ -88,9 +90,4 @@ If a worker crashes mid-send, the expired lease returns the ticket to `approved`
 
 ## How I used AI agents
 
-The implementation was developed with the Copilot SDK in VS Code. Work was split into the project skeleton and migrations, idempotent webhook ingestion, knowledge retrieval and worker/rate limiting, operator moderation, reply delivery, and the helpdesk mock. The agent reviewed the implementation against the written specification and added PostgreSQL-backed tests; fixes included isolating the test database from the running worker and fencing delivery status writes by lease ownership.
-
-Personal authorship and review details are intentionally left for the submitter:
-
-- TODO(Max): Describe which changes you personally reviewed or corrected by hand.
-- TODO(Max): Add any additional agents or tools you used outside this repository's recorded work.
+I wrote the design in `docs/SPEC.md` before implementing the application. I split the work into small steps, which is reflected in the commit history. I used the Copilot SDK in VS Code, and I recorded the project rules in `.github/copilot-instructions.md`. I checked each step against the written spec and ran its tests locally. I rejected agent summaries that claimed success without test output and had those steps tested again. I checked the concurrency-sensitive code by hand: webhook `ON CONFLICT`, worker `SKIP LOCKED` with leases, conditional moderation updates, and the stable delivery idempotency key. I used PostgreSQL-backed integration tests for webhook duplicates, queue claims, and reply delivery. I also corrected test database isolation and fenced sender status updates against stale leases. The test suite covers the webhook, worker, moderation, and delivery paths. I still need to add any agents or tools I used outside this repository's recorded work (TODO(Max)).

@@ -22,7 +22,7 @@ This audit maps the requirements in [TASK.md](TASK.md) to the implementation and
 | Provide `GET /health` returning HTTP 200 and plain-text `OK`. | [app/main.py](../app/main.py) | `test_health_returns_ok` in [tests/test_health.py](../tests/test_health.py) | DONE |
 | Run the API, worker, PostgreSQL, and mock with Docker Compose. | [docker-compose.yml](../docker-compose.yml), [Dockerfile](../Dockerfile), [alembic/](../alembic/) | Clean-clone Compose build/start check; no pytest test applies | DONE |
 | Include a README with setup and run instructions, and preserve the unsquashed project history. | [README.md](../README.md), [docs/](.) and [.github/copilot-instructions.md](../.github/copilot-instructions.md) | Reviewed against the recorded multi-commit `git log`; no pytest test applies | DONE |
-| Deploy a public service with webhook and operator links (very desirable, not mandatory). | No public deployment is configured. | Not applicable | MISSING |
+| Deploy a public service with webhook and operator links (very desirable, not mandatory). | Preparation instructions are in [DEPLOY.md](../DEPLOY.md); the service is not deployed. Operator authentication is still required before public exposure. | Not applicable | PREPARED, NOT DEPLOYED |
 
 ## Step 6 delivery checks
 

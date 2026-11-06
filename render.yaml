@@ -1,0 +1,57 @@
+databases:
+  - name: helpdesk-postgres
+    databaseName: helpdesk
+    user: helpdesk
+    plan: basic-256mb
+    region: oregon
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: helpdesk-api
+    runtime: docker
+    plan: starter
+    region: oregon
+    dockerCommand: "sh -c 'alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}'"
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
+
+  - type: worker
+    name: helpdesk-worker
+    runtime: docker
+    plan: starter
+    region: oregon
+    dockerCommand: python -m app.worker
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_API_URL
+        value: https://api.openai.com/v1/chat/completions
+      - key: LLM_MODEL
+        value: gpt-4o-mini
+      - key: LLM_STATIC_FALLBACK_ENABLED
+        value: "true"
+      - key: WORKER_CONCURRENCY
+        value: "30"
+
+  - type: pserv
+    name: helpdesk-mock
+    runtime: docker
+    plan: starter
+    region: oregon
+    dockerCommand: "sh -c 'exec uvicorn app.helpdesk_mock:app --host 0.0.0.0 --port ${PORT:-10000}'"
+    envVars:
+      - key: MOCK_API_URL
+        sync: false
+      - key: MOCK_FAILURE_RATE
+        value: "0"
+      - key: MOCK_HANG_RATE
+        value: "0"
+      - key: MOCK_DUPLICATE_MODE
+        value: "false"
