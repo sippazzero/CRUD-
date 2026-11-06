@@ -29,9 +29,11 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Compose starts PostgreSQL, runs Alembic migrations before serving the API, and starts the API, worker, and mock. The API health check is at <http://localhost:8000/health>, the mock is at <http://localhost:8001/health>, and the operator review page is at <http://localhost:8000/operator/moderation>. Do not expose the operator page publicly without authentication.
+Compose starts PostgreSQL, runs Alembic migrations before serving the API, and starts the API, worker, and mock. The API health check is at <http://localhost:8000/health>, the mock is at <http://localhost:8001/health>, and the operator review page is at <http://localhost:8000/operator/moderation>. Basic Auth is disabled by default for local Compose use. Set both `OPERATOR_USERNAME` and `OPERATOR_PASSWORD` to protect every `/operator/*` route; enable them before any public deployment and serve the API over HTTPS.
 
-`HELPDESK_ALLOWED_REPLY_HOSTS` is a comma-separated host allowlist for webhook `reply_url` values and sender requests. The local default allows only `helpdesk-mock`; add the exact helpdesk callback hostname in `.env` before using a real helpdesk.
+Callback validation resolves every non-mock hostname and rejects a URL if any IPv4/IPv6 result is non-public (including loopback, private, link-local, and metadata ranges). The worker repeats this check immediately before sending, and HTTP redirects are disabled. The Compose callback hostname is `HELPDESK_MOCK_HOST=helpdesk-mock`; change that environment variable only when the helpdesk mock's service hostname differs. DNS is checked again on delivery, but resolution and connection are separate operations, so DNS rebinding between them remains a limitation. The assignment's reserved `helpdesk.example.com` sample is accepted at ingestion when it does not resolve; delivery still rejects an unresolvable target.
+
+Webhook IDs are idempotent: the first payload persisted for an `event_id` wins. A later request reusing that ID—even with a different payload—returns the same `200` acknowledgement and does not replace the first event.
 
 Run the full integration suite against the Compose PostgreSQL service:
 
@@ -67,32 +69,40 @@ The script sends 500 distinct ticket events plus 50 duplicate deliveries over 60
 
 **Fast, idempotent webhook.** The handler validates the payload and performs one `INSERT ... ON CONFLICT DO NOTHING` transaction, then returns `200`; it does not call the LLM or another service. The unique event ID makes concurrent retries a successful no-op rather than duplicate work.
 
-**Restricted reply destinations.** The API rejects callback URLs whose hostname is not explicitly allowed, and the sender repeats the check before outbound requests. This prevents untrusted webhook payloads from using the sender as a path to internal network services.
+**SSRF-resistant reply destinations.** The API and sender resolve callback hostnames and reject any non-public address, while allowing only the explicitly configured Compose mock hostname as a private-network exception. Redirects are disabled. Rechecking before sending reduces risk but does not pin the DNS answer through connection establishment.
 
 **Global 60-request/minute limit.** A one-token-per-second bucket is persisted and transactionally coordinated in PostgreSQL, so it remains shared across concurrent worker tasks and restarts. Worker concurrency is separately configurable to bound simultaneous slow provider calls.
 
-**PostgreSQL article retrieval.** The eight Ukrainian articles use `simple` full-text search combined with `pg_trgm` similarity, ranked to return at most three results. This gives token and typo/partial-word matching without maintaining a separate search service for a small corpus.
+**PostgreSQL article retrieval.** The eight Ukrainian articles use `simple` full-text search combined with `pg_trgm` similarity, ranked to return at most three results. A small English-to-Ukrainian keyword map helps English-language tickets find the Ukrainian articles; unsupported terms still rely on PostgreSQL's configured search. This avoids maintaining a separate search service for a small corpus.
 
-**No-key fallback.** With no API key and fallback enabled, the worker still attempts the configured provider request, discards the result, waits a random 5–30 seconds, and substitutes a static cited reply. This preserves the same queue and moderation flow while making local runs possible; the unauthenticated provider request may fail and is not anonymous inference.
+**Ollama and no-key fallback.** By default, the worker sends Ollama's native chat request to `https://ollama.com/api/chat` using model `gemma4:31b`, a finite timeout, `stream: false`, and a Bearer key from `LLM_API_KEY`. `LLM_PROVIDER`, `LLM_BASE_URL`, and `LLM_MODEL` can be set in `.env`; `openai_compatible` is also supported. With no key and fallback enabled, the worker still attempts the configured provider, then substitutes a static cited reply after a random 5–30 seconds; the unauthenticated request may be rejected and is not anonymous inference.
+
+Ollama request/response format and cloud authentication follow the official [Ollama chat API](https://docs.ollama.com/api/chat), [Ollama Cloud](https://docs.ollama.com/cloud), and [OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility) documentation. The model was selected from Ollama's documented cloud example; it avoids introducing a local model download for the take-home demo.
 
 ## Load-test results
 
 On 2026-11-06, a local Compose run sent 500 unique tickets plus 50 duplicate webhook deliveries over 60 seconds with the default `WORKER_CONCURRENCY=30`. All 500 persisted rows reached `sent` in about 8m59s; webhook p95 was 0.013s and the longest response was 0.071s. The database recorded 504 generation attempts and 500 delivery attempts, and the mock recorded exactly 500 deliveries with no missing or duplicate ticket IDs. The run finished in about 8m59 because the 60 requests/minute limit makes about 8m20 the theoretical minimum, so the rate limiter held the limit and no ticket was lost.
 
-A separate 120-ticket run at the same default concurrency sent 132 webhook requests, and all 120 tickets reached `sent`. An HTTP counter observed 120 provider requests, with at most 59 arrivals in any rolling 60-second window; webhook p95 was 0.292s and the longest response was 0.340s. A direct no-key provider probe received HTTP 401, then produced a static cited draft after a test-configured five-second fallback delay. These local runs verify the configured request path and fallback behavior, not successful inference using a valid provider key.
+A separate 120-ticket run at the same default concurrency sent 132 webhook requests, and all 120 tickets reached `sent`. An HTTP counter observed 120 provider requests, with at most 59 arrivals in any rolling 60-second window; webhook p95 was 0.292s and the longest response was 0.340s. A direct no-key provider probe received HTTP 401, then produced a static cited draft after a test-configured five-second fallback delay.
+
+### Local real-model check
+
+On 2026-11-06, one existing ticket was reprocessed through the configured Ollama Cloud endpoint using `gemma4:31b`. It reached `draft_ready` after one generation attempt, cited `export-pdf-report`, and returned a real-model draft (not the static fallback). The first 200 characters were:
+
+> Вітаємо! Щоб експортувати звіт у PDF, відкрийте потрібний звіт у Зорі, натисніть «Експорт» і виберіть формат PDF. Зверніть увагу, що великі звіти можуть готуватися кілька хвилин, після чого готовий фа
 
 These are local measurements, not a production capacity guarantee. The 500-ticket result covers the assignment's peak volume with the default concurrency, but provider latency, production hardware, and behavior under representative deployment conditions still need measurement.
 
 ## Delivery guarantees and limits
 
-The worker commits a `sending` lease before making the HTTP request and sends a stable per-ticket `Idempotency-Key`. Delivery attempts are at-least-once: a timeout can happen after the helpdesk has accepted the reply, so the sender retries with the same key. If the receiver durably honors that key, it returns the original result and does not create a second reply; without receiver-side deduplication, a duplicate remains possible.
+The worker commits a `sending` lease before making the HTTP request and sends a stable per-ticket `Idempotency-Key`. The reply body contains exactly `ticket_id` and `message`; the mock returns `201 Created` both for the first delivery and for a replay of the same key. Delivery attempts are at-least-once: a timeout can happen after the helpdesk has accepted the reply, so the sender retries with the same key. If the receiver durably honors that key, it returns the original result and does not create a second reply; without receiver-side deduplication, a duplicate remains possible.
 
 If a worker crashes mid-send, the expired lease returns the ticket to `approved` and another attempt uses the same key. The mock records and deduplicates replies in process memory, before configured post-processing failures, but loses its ledger when restarted; a production helpdesk must persist its idempotency records.
 
 ## What I would do with more time
 
-- Add operator authentication and authorization before any non-local deployment.
-- Repeat the load test with a valid LLM provider key; tune production worker and database limits from representative provider latency and deployment measurements.
+- Repeat the load test over a longer period and tune production worker and database limits from representative provider latency and deployment measurements.
+- Replace Basic Auth with the deployment's identity provider and add role-based operator authorization.
 - Add operational metrics, structured tracing, and a durable mock ledger for longer-running delivery tests.
 - Validate the end-to-end idempotency contract against the real helpdesk API before claiming stronger delivery guarantees.
 

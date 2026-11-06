@@ -1,6 +1,6 @@
 # Deployment preparation
 
-This guide prepares the service for Render or Railway; it does not deploy anything. The operator page has no authentication in this assignment, so do not expose it publicly until access control is added. Do not commit provider credentials or database URLs; enter them in the hosting dashboard.
+This guide prepares the service for Render or Railway; it does not deploy anything. Configure both operator Basic Auth variables before any public deployment and serve the API over HTTPS. Do not commit provider credentials, operator passwords, or database URLs; enter them in the hosting dashboard.
 
 ## Render
 
@@ -31,8 +31,8 @@ The optional [render.yaml](render.yaml) Blueprint describes a managed PostgreSQL
    Keep it private; the mock's `/deliveries` endpoint has no authentication. Set `MOCK_API_URL` to the API's internal URL plus `/webhooks/helpdesk`. For simulated tickets, use the mock's private service address with `/reply` as `reply_url`.
 6. Set dashboard environment variables:
 
-   - **API:** `DATABASE_URL`, `LOG_LEVEL=INFO`, and `HELPDESK_ALLOWED_REPLY_HOSTS` set to the actual helpdesk callback hostname(s), comma-separated.
-   - **Worker:** the same `DATABASE_URL` and `HELPDESK_ALLOWED_REPLY_HOSTS`; `LLM_API_URL`, `LLM_MODEL`, `LLM_API_KEY` (optional), `LLM_STATIC_FALLBACK_ENABLED=true`, `LLM_TIMEOUT_SECONDS=30`; `WORKER_CONCURRENCY=30`, `WORKER_POLL_SECONDS=1`, `WORKER_LEASE_SECONDS=120`, `WORKER_MAX_ATTEMPTS=5`, `WORKER_BACKOFF_BASE_SECONDS=5`, `WORKER_BACKOFF_MAX_SECONDS=300`; and `SENDER_TIMEOUT_SECONDS=10`, `SENDER_MAX_ATTEMPTS=5`, `SENDER_LEASE_SECONDS=300`.
+   - **API:** `DATABASE_URL`, `LOG_LEVEL=INFO`, `HELPDESK_MOCK_HOST` set to the private mock service hostname, and both `OPERATOR_USERNAME` and `OPERATOR_PASSWORD` set to unique credentials.
+   - **Worker:** the same `DATABASE_URL` and `HELPDESK_MOCK_HOST`; `LLM_PROVIDER=ollama`, `LLM_BASE_URL=https://ollama.com`, `LLM_MODEL=gemma4:31b`, and `LLM_API_KEY` (optional for the static fallback); `LLM_STATIC_FALLBACK_ENABLED=true`, `LLM_TIMEOUT_SECONDS=30`; `WORKER_CONCURRENCY=30`, `WORKER_POLL_SECONDS=1`, `WORKER_LEASE_SECONDS=120`, `WORKER_MAX_ATTEMPTS=5`, `WORKER_BACKOFF_BASE_SECONDS=5`, `WORKER_BACKOFF_MAX_SECONDS=300`; and `SENDER_TIMEOUT_SECONDS=10`, `SENDER_MAX_ATTEMPTS=5`, `SENDER_LEASE_SECONDS=300`.
    - **Helpdesk mock:** `MOCK_API_URL`, `MOCK_FAILURE_RATE=0`, `MOCK_HANG_RATE=0`, `MOCK_HANG_SECONDS=15`, `MOCK_FAIL_BEFORE_RECORD=0`, `MOCK_DUPLICATE_MODE=false`.
 
    Render services in the same region can communicate over private service hostnames; copy the actual internal addresses from each service's **Connect** panel rather than assuming a hostname. If no LLM key is set, the worker still attempts the provider request and uses the configured static fallback after its simulated delay.
@@ -42,11 +42,11 @@ The optional [render.yaml](render.yaml) Blueprint describes a managed PostgreSQL
    https://<api-service-name>.onrender.com/webhooks/helpdesk
    ```
 
-   The same public API also serves `/operator/moderation`; add authentication before sharing that page publicly.
+   The same public API also serves `/operator/moderation`; Basic Auth is enabled by the required dashboard credentials. Use the same credentials for approve/reject actions and do not distribute them in webhook configuration.
 
 ## Railway alternative
 
-Create a Railway project with a managed PostgreSQL service, then create three services from the same GitHub repository so each builds from the root `Dockerfile`. Set the API start command to the migration-plus-Uvicorn command above, the worker command to `python -m app.worker`, and the mock command to the Uvicorn command above. Configure the same per-service environment variables listed for Render, using Railway's private service addresses and a `postgresql+asyncpg://` `DATABASE_URL`; do not commit generated credentials. Generate a public domain for the API service and append `/webhooks/helpdesk` to form the webhook URL. Keep the operator page private until authentication is implemented.
+Create a Railway project with a managed PostgreSQL service, then create three services from the same GitHub repository so each builds from the root `Dockerfile`. Set the API start command to the migration-plus-Uvicorn command above, the worker command to `python -m app.worker`, and the mock command to the Uvicorn command above. Configure the same per-service environment variables listed for Render, using Railway's private service addresses and a `postgresql+asyncpg://` `DATABASE_URL`; set both operator credentials in the dashboard and do not commit generated credentials. Generate a public domain for the API service and append `/webhooks/helpdesk` to form the webhook URL. The operator page uses HTTP Basic Auth and must be served only over HTTPS.
 
 ## Platform references
 

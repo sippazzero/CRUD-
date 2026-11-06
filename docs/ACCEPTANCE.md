@@ -2,7 +2,7 @@
 
 ## Verdict
 
-**READY WITH KNOWN GAPS.** The application passed the local 500-ticket peak run at the configured default concurrency, webhook latency remained below two seconds, the measured provider-request rate stayed within the limit, and the fresh-clone demo completed. Two bugs found during this review were fixed with regression tests. This is not a production-readiness certification: no authenticated LLM response or real helpdesk was available, the mock ledger is in-memory, and the operator UI has no authentication.
+**READY WITH KNOWN GAPS.** The application passed the local 500-ticket peak run at the configured default concurrency, webhook latency remained below two seconds, the measured provider-request rate stayed within the limit, and the fresh-clone demo completed. Two bugs found during this review were fixed with regression tests. Follow-up verification also confirmed a real Ollama response, optional operator Basic Auth, and callback SSRF checks. This is not a production-readiness certification: no real helpdesk was available, and the mock ledger is in-memory.
 
 The distinction below is intentional:
 
@@ -92,6 +92,20 @@ The counter run observed actual HTTP arrivals at a local provider-compatible end
 
 The code review does not establish that a real helpdesk durably honors idempotency keys. The mock ledger is process-local and clears when the mock restarts.
 
+## Follow-up verification: provider and security changes
+
+The following checks were run after the original acceptance review. This addendum supersedes earlier statements in this report that operator authentication was absent or that no valid-key inference had been tested.
+
+| Requirement | Evidence | Result |
+|---|---|---|
+| English ticket retrieves a Ukrainian knowledge article. | `D:\CRUD\.venv\Scripts\python.exe -m pytest -p no:cacheprovider -q tests\test_knowledge.py` | `2 passed in 1.64s`; the English PDF-export query ranks `export-pdf-report` first. |
+| Real configured Ollama call creates a cited draft. | Existing ticket `evt_ollama_local_20261106_1409` was reset to `new` in PostgreSQL and processed by the rebuilt Compose worker. | `status=draft_ready`, `attempts=1`, `citations=["export-pdf-report"]`; the draft came from the real model, not fallback. |
+| Operator Basic Auth is optional and constant-time checked. | `tests/test_operator_auth.py` and the full test suite. | Missing and incorrect credentials receive 401; correct credentials succeed; `/health` remains open. |
+| SSRF protections retain the assignment's sample payload. | Exact sample webhook posted to the local API; regression tests in `tests/test_url_safety.py` and `tests/test_ingest.py`. | Sample returned HTTP 200 and its test row was deleted. Private/loopback destinations are blocked, and the configured mock host is explicitly allowed. |
+| Full tests and lint after the follow-up code changes. | `D:\CRUD\.venv\Scripts\ruff.exe check .`; `D:\CRUD\.venv\Scripts\ruff.exe format --check .`; `D:\CRUD\.venv\Scripts\python.exe -m pytest -q` | Ruff: `All checks passed!`; formatting: `43 files already formatted`; pytest: `52 passed in 9.26s` with no warnings. |
+
+The captured real-model response began: “Вітаємо! Щоб експортувати звіт у PDF, відкрийте потрібний звіт у Зорі, натисніть «Експорт» і виберіть формат PDF.” The run used the configured cloud endpoint/model; no credential value is recorded here.
+
 ## Bugs found and fixes
 
 1. **Untrusted reply URL could reach internal hosts (SSRF).** A webhook-controlled callback URL was accepted and the sender could reach an internal endpoint in a local probe. Added a hostname allowlist at ingestion and a second check immediately before sending, with regression tests and configuration/documentation. Fixed in commit `e7c06ad` (`fix: restrict helpdesk reply destinations`).
@@ -102,12 +116,12 @@ The code review does not establish that a real helpdesk durably honors idempoten
 - `.env` is ignored and untracked; `.env.example` contains placeholders only.
 - Current files and Git history were scanned for high-confidence API-key, bearer-token, and private-key patterns; none were found. Older commits retain a generic local-development database password. It was not a deployed credential, and commit history was intentionally not rewritten.
 - The clean-clone acceptance stack and temporary counter container are test-only and are removed after the report is committed. The original `crud` stack is not part of cleanup.
-- Deployment is prepared in [DEPLOY.md](../DEPLOY.md), but **not deployed**. Do not expose the operator UI publicly until authentication and authorization are added.
+- Deployment is prepared in [DEPLOY.md](../DEPLOY.md), but **not deployed**. Optional Basic Auth is now available; public deployments must configure both credentials and use HTTPS.
 
 ## Remaining gaps
 
-- No successful inference with a valid LLM key or integration with a real helpdesk was tested.
-- The clean-clone demonstration used the no-key fallback; provider latency and deployed capacity remain unmeasured.
+- The clean-clone demonstration used the no-key fallback; the real-model check covered one ticket only, so provider latency and deployed capacity remain unmeasured.
+- No integration with a real helpdesk was tested.
 - The mock's delivery ledger is in memory; production receiver-side idempotency must be durable.
 - A worker kill during active draft generation, a live run with exactly two worker replicas, and SIGTERM during active work were not separately demonstrated in this acceptance session.
 - The README contains one `TODO(Max)` asking the author to add any agents or tools used outside the repository's recorded work.
