@@ -24,14 +24,13 @@ Railway currently lists a Free plan with $1/month usage credit, a per-service ma
    DATABASE_URL
    LOG_LEVEL
    HELPDESK_MOCK_HOST
-   OPERATOR_USERNAME
-   OPERATOR_PASSWORD
    LLM_PROVIDER
    LLM_BASE_URL
    LLM_MODEL
    LLM_API_KEY
    LLM_STATIC_FALLBACK_ENABLED
    LLM_TIMEOUT_SECONDS
+   LLM_DAILY_CALL_CAP
    WORKER_CONCURRENCY
    WORKER_POLL_SECONDS
    WORKER_LEASE_SECONDS
@@ -43,7 +42,9 @@ Railway currently lists a Free plan with $1/month usage credit, a per-service ma
    SENDER_LEASE_SECONDS
    ```
 
-   Set `OPERATOR_PASSWORD` using a generated strong value in Railway's secure Variables form, never in the repository. Set `LLM_API_KEY` through the same secure form. Do not copy `.env` into Railway. For the Free plan's constrained per-service resources, start with `WORKER_CONCURRENCY=2`; increase only after observing memory and CPU. The database-backed rate limiter remains the cap of 60 provider requests per minute.
+   `LLM_DAILY_CALL_CAP` defaults to 300 provider-call attempts per UTC day; set it to `0` only to disable the cap. PostgreSQL atomically coordinates the counter across workers and replicas. At the cap, generation skips the provider request and uses the static cited fallback after 5–30 seconds.
+
+   For the intended open reviewer demo, do not set `OPERATOR_USERNAME` or `OPERATOR_PASSWORD`; the operator page will be open. Optional Basic Auth remains available by setting both variables through Railway's secure Variables form. The repository has not been deployed, so there are no live public URLs yet. Set `LLM_API_KEY` through the secure Variables form, never in a committed file. Do not copy `.env` into Railway. For the Free plan's constrained per-service resources, start with `WORKER_CONCURRENCY=2`; increase only after observing memory and CPU. The PostgreSQL daily call cap limits key usage to 300 provider-call attempts per UTC day by default.
 5. To provide the demo mock, choose **New → GitHub Repo** and select the same repository again. In the mock service's **Settings → Deploy**, override its start command to:
 
    ```sh
@@ -60,8 +61,8 @@ Railway currently lists a Free plan with $1/month usage credit, a per-service ma
    Mock:     https://<mock-domain>
    ```
 
-   These are URL templates only, not live deployment URLs. The hosted operator page requires HTTP Basic Auth; use the configured `OPERATOR_USERNAME` and `OPERATOR_PASSWORD` over HTTPS.
-8. For a live acceptance check, POST a webhook with `reply_url` set to `https://<mock-domain>/reply`, wait for `draft_ready`, open the operator URL with Basic Auth, approve exactly one ticket, then inspect `https://<mock-domain>/deliveries`. Remove the mock public domain after testing if public ledger access is not intended.
+   These are URL templates only, not live deployment URLs. For the open reviewer demo, the operator URL requires no credentials. If Basic Auth is enabled instead, use HTTPS and the configured credentials.
+8. For a live acceptance check, POST a webhook with `reply_url` set to `https://<mock-domain>/reply`, wait for `draft_ready`, open the operator URL, approve exactly one ticket, then inspect `https://<mock-domain>/deliveries`. Remove the mock public domain after testing if public ledger access is not intended.
 
 Railway's documented [public networking](https://docs.railway.com/networking/public-networking) provides a Railway domain and managed TLS. Railway variables are managed in the service's **Variables** page; see [Using Variables](https://docs.railway.com/variables) and [PostgreSQL connections](https://docs.railway.com/databases/postgresql).
 

@@ -23,7 +23,7 @@ The first persisted payload wins: if a producer reuses an `event_id` with differ
 
 Resolve every non-mock callback hostname and reject the URL if any IPv4/IPv6 result is non-public, including loopback, private, link-local, and cloud-metadata ranges. Recheck before sending and disable redirects. The only private-network exception is the exact Compose mock hostname configured by `HELPDESK_MOCK_HOST` (default `helpdesk-mock`). The reserved `helpdesk.example.com` task sample may be accepted at ingestion if unresolvable, but delivery always rejects an unresolved address. DNS resolution and socket connection remain separate operations, so DNS rebinding between the check and connection is a documented residual risk.
 
-The operator pages and actions optionally use HTTP Basic Auth when both `OPERATOR_USERNAME` and `OPERATOR_PASSWORD` are configured. Local Compose leaves these unset; any public deployment must set both and use HTTPS. Credentials are compared with a constant-time comparison and are never logged.
+The operator pages and actions optionally use HTTP Basic Auth when both `OPERATOR_USERNAME` and `OPERATOR_PASSWORD` are configured. Local Compose leaves these unset. The intended open reviewer demo also leaves them unset so the operator page is accessible; set both when Basic Auth is desired and use HTTPS for public traffic. Credentials are compared with a constant-time comparison and are never logged.
 
 ## Ticket lifecycle
 
