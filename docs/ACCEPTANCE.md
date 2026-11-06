@@ -114,6 +114,7 @@ On 2026-11-06, the service was deployed and verified live on Railway:
 - **Webhook submission:** `POST https://crud-production-a698.up.railway.app/webhooks/helpdesk` with event `railway-verify-evt-001` (`Як налаштувати сповіщення електронною поштою?`) returned `HTTP/1.1 200 OK`, body `{"status":"accepted"}`.
 - **Idempotency replay:** Re-sending the identical payload returned `HTTP/1.1 200 OK`, body `{"status":"accepted"}` without creating duplicate rows.
 - **Operator review queue:** `GET https://crud-production-a698.up.railway.app/operator/moderation` rendered the ticket `railway-verify-tkt-001` in `draft_ready` status with generated draft citing `notifications`.
+- **Real LLM generation:** Tested with `LLM_API_KEY` configured in Railway Variables (Ollama Cloud, `gemma4:31b`) and cost-guarded by `LLM_DAILY_CALL_CAP`. Ticket `live-ollama-tkt-1793979162` (`Як експортувати звіт у PDF?`) reached `draft_ready` in 2.24s with fluent Ukrainian text citing `export-pdf-report` (not the static fallback). Second ticket `live-ollama-team-tkt-1793979174` (`Як запросити нового учасника в команду?`) reached `draft_ready` in 2.25s citing `team-access`.
 
 ## Bugs found and fixes
 
@@ -129,14 +130,14 @@ On 2026-11-06, the service was deployed and verified live on Railway:
 
 ## Remaining gaps
 
-- The clean-clone demonstration used the no-key fallback; the real-model check covered one ticket only, so provider latency and deployed capacity remain unmeasured.
+- The local clean-clone demonstration used the no-key fallback; on the live Railway deployment, real-model inference is active (Ollama Cloud, `gemma4:31b`) and cost-guarded by `LLM_DAILY_CALL_CAP`.
 - No integration with a real helpdesk was tested.
 - The mock's delivery ledger is in memory; production receiver-side idempotency must be durable.
 - A worker kill during active draft generation, a live run with exactly two worker replicas, and SIGTERM during active work were not separately demonstrated in this acceptance session.
 
 ## Original assignment re-verification
 
-This section records the checks performed for the follow-up request. "Earlier recorded run" means the command and output were captured in the acceptance evidence above, but were not repeated during this re-verification. No public deployment exists, so all HTTP results below are local unless stated otherwise.
+This section records the checks performed for the follow-up request. "Earlier recorded run" means the command and output were captured in the acceptance evidence above, but were not repeated during this re-verification. Public deployment is active on Railway (<https://crud-production-a698.up.railway.app>), with verification results recorded below.
 
 | Requirement from `docs/TASK.md` | Status | Command/evidence | Actual result |
 |---|---|---|---|
@@ -155,7 +156,7 @@ This section records the checks performed for the follow-up request. "Earlier re
 | Include detailed README startup instructions. | PASS | Earlier fresh-clone procedure: `docker compose -p crud-clean up --build -d`, followed by `scripts/demo.sh`; see requirement 14 above. | Fresh-clone build/start and demo succeeded; the README was sufficient for that run. |
 | Commit agent configuration/specification files used for the work. | PASS | `git ls-files .github/copilot-instructions.md docs/TASK.md docs/SPEC.md README.md DEPLOY.md railway.json` | Tracked output includes `.github/copilot-instructions.md`, `docs/TASK.md`, `docs/SPEC.md`, `README.md`, `DEPLOY.md`, and `railway.json`. |
 | Preserve commit history without squash. | PASS (visible repository history) | `git --no-pager log --oneline -n 10` | The repository contains multiple separate conventional commits; the latest visible commits are `7a67ff4` and `e56c6f4`. This output cannot establish what actions may have occurred before the visible history. |
-| Provide public webhook/operator links to a deployed service (strongly preferred by the assignment). | PASS | Live HTTP verification against deployed Railway service at `https://crud-production-a698.up.railway.app`. | `GET /health` returned `200 OK`; `POST /webhooks/helpdesk` returned `200 {"status":"accepted"}`; duplicate replay returned same `200` without creating a duplicate; background embedded worker generated cited reply draft and ticket appeared on `https://crud-production-a698.up.railway.app/operator/moderation` in `draft_ready` status. |
+| Provide public webhook/operator links to a deployed service (strongly preferred by the assignment). | PASS | Live HTTP verification against deployed Railway service at `https://crud-production-a698.up.railway.app`. | `GET /health` returned `200 OK`; `POST /webhooks/helpdesk` returned `200 {"status":"accepted"}`; duplicate replay returned same `200` without creating a duplicate; background embedded worker generated cited reply draft using real Ollama Cloud inference (`gemma4:31b`, ~2.25s, citing relevant articles) cost-guarded by `LLM_DAILY_CALL_CAP`, and ticket appeared on `https://crud-production-a698.up.railway.app/operator/moderation` in `draft_ready` status. |
 | Full current test suite. | PASS | `docker compose run --build --rm api sh -c 'ruff check --no-cache --exclude build . && python -m pytest -q -o cache_dir=/tmp/pytest-cache'` | Ruff: `All checks passed!`; pytest: `61 passed in 6.18s`. |
 | Focused assignment behavior tests. | PASS | The focused Docker command shown above, with 14 webhook, queue, LLM, knowledge, moderation, and sender tests. | `14 passed in 2.87s`. |
 | Daily provider-call cap across UTC days and concurrent workers. | PASS | The full test suite above includes PostgreSQL-backed tests for below-cap provider calls, delayed static fallback after the cap, next-UTC-day reset, and 40 concurrent reservations against a cap of 7. | Four daily-cap tests passed using the real Compose PostgreSQL database; the concurrent test persisted exactly 7 reservations for the UTC date. |

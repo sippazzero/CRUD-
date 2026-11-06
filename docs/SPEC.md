@@ -11,7 +11,7 @@ Build a small, durable helpdesk-ticket workflow that generates an LLM-assisted r
 - **PostgreSQL 16:** Primary store for tickets, webhook event IDs, knowledge-base articles, drafts, queue scheduling, and leases.
 - **Helpdesk mock:** A separate container accepts simulated webhook deliveries and reply submissions. It implements idempotency-key handling and configurable faults so delivery retries can be tested.
 
-Run the local components with Docker Compose. Configure secrets and service settings through environment variables; commit `.env.example`, never secret values. Hosted deployments bind the API to the platform-provided `PORT`, run migrations before serving, and use managed PostgreSQL rather than local disk. The current Railway preparation is in `DEPLOY.md`; it has not been deployed.
+Run the local components with Docker Compose. Configure secrets and service settings through environment variables; commit `.env.example`, never secret values. Hosted deployments bind the API to the platform-provided `PORT`, run migrations before serving, and use managed PostgreSQL rather than local disk. The current Railway deployment is documented in `DEPLOY.md` and live at `https://crud-production-a698.up.railway.app`.
 
 ## Webhook acceptance and idempotency
 

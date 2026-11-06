@@ -8,13 +8,15 @@ The service is deployed on Railway (API with embedded worker, plus PostgreSQL). 
 
 - **Health:** <https://crud-production-a698.up.railway.app/health>
 - **Operator page:** <https://crud-production-a698.up.railway.app/operator/moderation>
-- **Webhook:** `POST https://crud-production-a698.up.railway.app/webhooks/helpdesk`
+- **Webhook:** `POST https://crud-production-a698.up.railway.app/webhooks/helpdesk` (POST only; a browser GET returns 405)
 - **API docs:** <https://crud-production-a698.up.railway.app/docs>
 - **Repository:** <https://github.com/sippazzero/CRUD->
 
-The hosted demo is intentionally open: there is no operator authentication, so do not use real customer data. It runs without `LLM_API_KEY`, as the assignment allows: the worker still makes a real provider request, then uses a static cited draft after a 5–30 s delay. Real-model generation was checked only locally (see "Local real-model check" below).
+The hosted demo is intentionally open (no operator authentication, do not use real customer data); it runs with a real `LLM_API_KEY` (Ollama Cloud, `gemma4:31b`), limited by the shared daily cap `LLM_DAILY_CALL_CAP`; if the cap is reached or the provider fails, the worker falls back to a static cited draft after a 5–30 s delay.
 
 Railway's free credit is limited, so the demo may be interrupted if the credit runs out. Limits and pricing change over time; see [DEPLOY.md](DEPLOY.md).
+
+The Railway deployment does not include the helpdesk mock service, and the mock hostname `helpdesk-mock` is only allowed in Docker Compose. On the hosted demo, `reply_url` must be a public HTTPS receiver (for example [webhook.site](https://webhook.site/)).
 
 ### Quick copy-paste test (3 steps):
 
@@ -27,7 +29,7 @@ Railway's free credit is limited, so the demo may be interrupted if the credit r
        "ticket_id": "demo-tkt-001",
        "customer_email": "customer@example.com",
        "message": "Як експортувати звіт у PDF?",
-       "reply_url": "http://helpdesk-mock/reply"
+       "reply_url": "https://webhook.site/<your-id>"
      }'
    ```
    Returns `HTTP 200 {"status":"accepted"}` within milliseconds. Re-sending the identical payload returns the same `HTTP 200` without creating a duplicate ticket.

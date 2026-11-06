@@ -44,7 +44,7 @@ Railway currently lists a Free plan with $1/month usage credit, a per-service ma
 
    `LLM_DAILY_CALL_CAP` defaults to 300 provider-call attempts per UTC day; set it to `0` only to disable the cap. PostgreSQL atomically coordinates the counter across workers and replicas. At the cap, generation skips the provider request and uses the static cited fallback after 5–30 seconds.
 
-   For the intended open reviewer demo, do not set `OPERATOR_USERNAME` or `OPERATOR_PASSWORD`; the operator page will be open. Optional Basic Auth remains available by setting both variables through Railway's secure Variables form. The repository has not been deployed, so there are no live public URLs yet. Set `LLM_API_KEY` through the secure Variables form, never in a committed file. Do not copy `.env` into Railway. For the Free plan's constrained per-service resources, start with `WORKER_CONCURRENCY=2`; increase only after observing memory and CPU. The PostgreSQL daily call cap limits key usage to 300 provider-call attempts per UTC day by default.
+   For the intended open reviewer demo, do not set `OPERATOR_USERNAME` or `OPERATOR_PASSWORD`; the operator page will be open. Optional Basic Auth remains available by setting both variables through Railway's secure Variables form. The live service is deployed on Railway and runs with a real `LLM_API_KEY` (Ollama Cloud, `gemma4:31b`) configured securely in Railway's Variables form, never in a committed file. Do not copy `.env` into Railway. For the Free plan's constrained per-service resources, start with `WORKER_CONCURRENCY=2`; increase only after observing memory and CPU. `LLM_DAILY_CALL_CAP` acts as the cost guard (defaulting to 300 provider-call attempts per UTC day) coordinated across workers; if exhausted or on provider failure, generation falls back to a static cited draft after a 5–30 s delay.
 5. To provide the demo mock, choose **New → GitHub Repo** and select the same repository again. In the mock service's **Settings → Deploy**, override its start command to:
 
    ```sh
@@ -69,7 +69,7 @@ Railway currently lists a Free plan with $1/month usage credit, a per-service ma
    - `GET /health` returns `HTTP 200 OK`.
    - `POST /webhooks/helpdesk` validates payload and returns `HTTP 200 {"status":"accepted"}` within milliseconds.
    - Sequential duplicate deliveries with the same `event_id` return the same `HTTP 200` without creating a duplicate ticket.
-   - The embedded worker retrieves knowledge base articles, generates a cited draft, and the ticket appears at `https://crud-production-a698.up.railway.app/operator/moderation` in `draft_ready` status.
+   - The embedded worker retrieves knowledge base articles, generates a cited draft using real Ollama Cloud inference (`gemma4:31b`), and the ticket appears at `https://crud-production-a698.up.railway.app/operator/moderation` in `draft_ready` status (verified ~2.25s generation latency citing relevant articles, protected by `LLM_DAILY_CALL_CAP`).
 
 Railway's documented [public networking](https://docs.railway.com/networking/public-networking) provides a Railway domain and managed TLS. Railway variables are managed in the service's **Variables** page; see [Using Variables](https://docs.railway.com/variables) and [PostgreSQL connections](https://docs.railway.com/databases/postgresql).
 

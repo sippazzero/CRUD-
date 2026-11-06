@@ -35,6 +35,6 @@ This audit maps the requirements in [TASK.md](TASK.md) to the implementation and
 ## Known gaps and limits
 
 - The peak scenario completed within 10 minutes in one local run at the default worker concurrency. This does not certify performance with a valid provider key or on production hardware; representative deployment conditions still need measurement.
-- Deployment instructions are prepared in [DEPLOY.md](../DEPLOY.md); the service has not been deployed publicly (**PREPARED, NOT DEPLOYED**).
+- Deployment is verified on Railway at <https://crud-production-a698.up.railway.app> ([DEPLOY.md](../DEPLOY.md)) with embedded worker, PostgreSQL, and real Ollama Cloud inference protected by `LLM_DAILY_CALL_CAP` (**DEPLOYED AND VERIFIED**).
 - The mock's delivery ledger is process-local and clears on restart. The receiver must durably retain idempotency keys in production; see [SPEC.md](SPEC.md).
 - Operator authentication and multi-tenant isolation are outside the assignment scope. Do not expose the moderation page publicly without adding access control.
