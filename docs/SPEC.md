@@ -19,6 +19,8 @@ Run all components with Docker Compose. Configure secrets and service settings t
 
 Enforce a database unique constraint on `event_id`; use `INSERT ... ON CONFLICT DO NOTHING` rather than a read-before-insert check. If persistence fails, return an error rather than acknowledge unpersisted work, allowing the helpdesk to retry. The database is the durable source of truth; an accepted event must not exist only in process memory.
 
+The first persisted payload wins: if a producer reuses an `event_id` with different ticket data, the later request still receives `200` but does not replace the original row. Producers must use a distinct event ID for each distinct event.
+
 Validate `reply_url` against the comma-separated `HELPDESK_ALLOWED_REPLY_HOSTS` configuration before persistence, and recheck it before sending. The local default is `helpdesk-mock`; deployments must explicitly configure the helpdesk's callback hostname. This prevents a caller from turning the unauthenticated webhook and moderation flow into a server-side request forgery path.
 
 ## Ticket lifecycle
