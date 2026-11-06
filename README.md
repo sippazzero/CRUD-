@@ -6,14 +6,37 @@ Helpdesk AI accepts support-ticket webhooks, retrieves supporting articles, draf
 
 The service is deployed on Railway (API with embedded worker, plus PostgreSQL). Deployment notes are in [DEPLOY.md](DEPLOY.md).
 
-- Health: https://crud-production-a698.up.railway.app/health
-- Operator page: https://crud-production-a698.up.railway.app/operator/moderation
-- Webhook: `POST https://crud-production-a698.up.railway.app/webhooks/helpdesk`
-- API docs: https://crud-production-a698.up.railway.app/docs
+- **Health:** <https://crud-production-a698.up.railway.app/health>
+- **Operator page:** <https://crud-production-a698.up.railway.app/operator/moderation>
+- **Webhook:** `POST https://crud-production-a698.up.railway.app/webhooks/helpdesk`
+- **API docs:** <https://crud-production-a698.up.railway.app/docs>
+- **Repository:** <https://github.com/sippazzero/CRUD->
 
 The hosted demo is intentionally open: there is no operator authentication, so do not use real customer data. It runs without `LLM_API_KEY`, as the assignment allows: the worker still makes a real provider request, then uses a static cited draft after a 5–30 s delay. Real-model generation was checked only locally (see "Local real-model check" below).
 
 Railway's free credit is limited, so the demo may be interrupted if the credit runs out. Limits and pricing change over time; see [DEPLOY.md](DEPLOY.md).
+
+### Quick copy-paste test (3 steps):
+
+1. **Send a support ticket webhook:**
+   ```sh
+   curl -i -X POST https://crud-production-a698.up.railway.app/webhooks/helpdesk \
+     -H "Content-Type: application/json" \
+     -d '{
+       "event_id": "demo-evt-001",
+       "ticket_id": "demo-tkt-001",
+       "customer_email": "customer@example.com",
+       "message": "Як експортувати звіт у PDF?",
+       "reply_url": "http://helpdesk-mock/reply"
+     }'
+   ```
+   Returns `HTTP 200 {"status":"accepted"}` within milliseconds. Re-sending the identical payload returns the same `HTTP 200` without creating a duplicate ticket.
+
+2. **Wait a few seconds for background generation:**
+   The embedded worker claims the ticket, matches relevant Ukrainian articles from the knowledge base (`export-pdf-report`), and generates a cited reply draft.
+
+3. **Inspect and moderate on the operator page:**
+   Open <https://crud-production-a698.up.railway.app/operator/moderation> in your browser to see the ticket, customer message, cited knowledge articles, and draft reply with Approve and Reject actions.
 
 ## Architecture
 

@@ -330,9 +330,7 @@ async def test_concurrent_daily_quota_reservations_never_exceed_cap(
         clock=lambda: datetime(2026, 1, 5, 12, tzinfo=UTC),
     )
 
-    reservations = await asyncio.gather(
-        *(quota.try_acquire(7) for _ in range(40))
-    )
+    reservations = await asyncio.gather(*(quota.try_acquire(7) for _ in range(40)))
 
     assert sum(reservations) == 7
     async with AsyncSession(postgres_engine) as session:

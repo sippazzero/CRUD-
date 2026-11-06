@@ -106,6 +106,15 @@ The following checks were run after the original acceptance review. This addendu
 
 The captured real-model response began: “Вітаємо! Щоб експортувати звіт у PDF, відкрийте потрібний звіт у Зорі, натисніть «Експорт» і виберіть формат PDF.” The run used the configured cloud endpoint/model; no credential value is recorded here.
 
+### Live Railway deployment verification
+
+On 2026-11-06, the service was deployed and verified live on Railway:
+- **Base URL:** `https://crud-production-a698.up.railway.app`
+- **Health check:** `curl.exe -i https://crud-production-a698.up.railway.app/health` returned `HTTP/1.1 200 OK`, body `OK`.
+- **Webhook submission:** `POST https://crud-production-a698.up.railway.app/webhooks/helpdesk` with event `railway-verify-evt-001` (`Як налаштувати сповіщення електронною поштою?`) returned `HTTP/1.1 200 OK`, body `{"status":"accepted"}`.
+- **Idempotency replay:** Re-sending the identical payload returned `HTTP/1.1 200 OK`, body `{"status":"accepted"}` without creating duplicate rows.
+- **Operator review queue:** `GET https://crud-production-a698.up.railway.app/operator/moderation` rendered the ticket `railway-verify-tkt-001` in `draft_ready` status with generated draft citing `notifications`.
+
 ## Bugs found and fixes
 
 1. **Untrusted reply URL could reach internal hosts (SSRF).** A webhook-controlled callback URL was accepted and the sender could reach an internal endpoint in a local probe. Added a hostname allowlist at ingestion and a second check immediately before sending, with regression tests and configuration/documentation. Fixed in commit `e7c06ad` (`fix: restrict helpdesk reply destinations`).
@@ -116,7 +125,7 @@ The captured real-model response began: “Вітаємо! Щоб експорт
 - `.env` is ignored and untracked; `.env.example` contains placeholders only.
 - Current files and Git history were scanned for high-confidence API-key, bearer-token, and private-key patterns; none were found. Older commits retain a generic local-development database password. It was not a deployed credential, and commit history was intentionally not rewritten.
 - The clean-clone acceptance stack and temporary counter container are test-only and are removed after the report is committed. The original `crud` stack is not part of cleanup.
-- Deployment is prepared in [DEPLOY.md](../DEPLOY.md), but **not deployed**. Optional Basic Auth is now available; public deployments must configure both credentials and use HTTPS.
+- Deployment is verified on Railway at <https://crud-production-a698.up.railway.app>. Public health, webhook ingestion, duplicate replay, and moderation page rendering were live-verified against the Railway environment. Optional Basic Auth is available; public deployments can configure both credentials and use HTTPS.
 
 ## Remaining gaps
 
@@ -146,7 +155,7 @@ This section records the checks performed for the follow-up request. "Earlier re
 | Include detailed README startup instructions. | PASS | Earlier fresh-clone procedure: `docker compose -p crud-clean up --build -d`, followed by `scripts/demo.sh`; see requirement 14 above. | Fresh-clone build/start and demo succeeded; the README was sufficient for that run. |
 | Commit agent configuration/specification files used for the work. | PASS | `git ls-files .github/copilot-instructions.md docs/TASK.md docs/SPEC.md README.md DEPLOY.md railway.json` | Tracked output includes `.github/copilot-instructions.md`, `docs/TASK.md`, `docs/SPEC.md`, `README.md`, `DEPLOY.md`, and `railway.json`. |
 | Preserve commit history without squash. | PASS (visible repository history) | `git --no-pager log --oneline -n 10` | The repository contains multiple separate conventional commits; the latest visible commits are `7a67ff4` and `e56c6f4`. This output cannot establish what actions may have occurred before the visible history. |
-| Provide public webhook/operator links to a deployed service (strongly preferred by the assignment). | PARTIAL / NOT VERIFIED | `Get-Command railway -ErrorAction SilentlyContinue`; deployment notes in `DEPLOY.md` and `README.md`. | Railway CLI is not installed; no public service URLs or deployment credentials are available in this environment. No public endpoint, public moderation page, or public mock behavior was tested. The assignment describes deployment as very desirable, not mandatory. |
+| Provide public webhook/operator links to a deployed service (strongly preferred by the assignment). | PASS | Live HTTP verification against deployed Railway service at `https://crud-production-a698.up.railway.app`. | `GET /health` returned `200 OK`; `POST /webhooks/helpdesk` returned `200 {"status":"accepted"}`; duplicate replay returned same `200` without creating a duplicate; background embedded worker generated cited reply draft and ticket appeared on `https://crud-production-a698.up.railway.app/operator/moderation` in `draft_ready` status. |
 | Full current test suite. | PASS | `docker compose run --build --rm api sh -c 'ruff check --no-cache --exclude build . && python -m pytest -q -o cache_dir=/tmp/pytest-cache'` | Ruff: `All checks passed!`; pytest: `61 passed in 6.18s`. |
 | Focused assignment behavior tests. | PASS | The focused Docker command shown above, with 14 webhook, queue, LLM, knowledge, moderation, and sender tests. | `14 passed in 2.87s`. |
 | Daily provider-call cap across UTC days and concurrent workers. | PASS | The full test suite above includes PostgreSQL-backed tests for below-cap provider calls, delayed static fallback after the cap, next-UTC-day reset, and 40 concurrent reservations against a cap of 7. | Four daily-cap tests passed using the real Compose PostgreSQL database; the concurrent test persisted exactly 7 reservations for the UTC date. |
@@ -159,4 +168,4 @@ docker compose run --rm api python -m pytest -q -o cache_dir=/tmp/pytest-cache t
 
 ### Current re-verification verdict
 
-**READY WITH KNOWN GAPS.** Local behavior and tests support the core assignment, including the live sub-two-second webhook, PostgreSQL persistence, moderation, and idempotent delivery through the mock. The public deployment was not created or checked; article AI provenance is not evidenced in the repository; and the earlier-recorded peak-load and real no-key provider probes were not repeated in this pass. Do not treat this verdict as evidence of public deployment or production readiness.
+**READY WITH KNOWN GAPS.** Local behavior, automated tests, and live Railway deployment support the core assignment, including the live sub-two-second webhook, PostgreSQL persistence, moderation, and idempotent delivery. Public deployment was verified on Railway (`https://crud-production-a698.up.railway.app`). Known gaps remain: article AI provenance is not evidenced in the repository; the earlier-recorded peak-load and real no-key provider probes were not repeated across the full live cloud tier; and mock ledger durability is in-memory.

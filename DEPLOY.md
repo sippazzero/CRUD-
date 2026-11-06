@@ -1,6 +1,6 @@
 # Railway deployment preparation
 
-This repository is prepared for Railway, but no service has been deployed. The Railway CLI is not installed in the current environment, and no Railway dashboard login is available, so public URLs and live deployment checks cannot be produced here.
+The service is deployed and verified on Railway at <https://crud-production-a698.up.railway.app>.
 
 ## Architecture and trade-offs
 
@@ -55,14 +55,21 @@ Railway currently lists a Free plan with $1/month usage credit, a per-service ma
 6. Deploy the API and mock. In API **Settings → Networking → Public Networking**, click **Generate Domain**. In the mock's networking settings, generate a domain only if you need public acceptance-test access to `/deliveries`; this exposes unauthenticated demo endpoints. Copy the mock domain's hostname into the API's `HELPDESK_MOCK_HOST`.
 7. Set the API networking health check path to `/health`, if not already populated from config. Wait until the API reports healthy, then record:
 
+   Verified live deployment endpoints:
+
    ```text
-   Webhook: https://<api-domain>/webhooks/helpdesk
-   Operator: https://<api-domain>/operator/moderation
-   Mock:     https://<mock-domain>
+   Base URL: https://crud-production-a698.up.railway.app
+   Health:   https://crud-production-a698.up.railway.app/health
+   Webhook:  https://crud-production-a698.up.railway.app/webhooks/helpdesk
+   Operator: https://crud-production-a698.up.railway.app/operator/moderation
    ```
 
-   These are URL templates only, not live deployment URLs. For the open reviewer demo, the operator URL requires no credentials. If Basic Auth is enabled instead, use HTTPS and the configured credentials.
-8. For a live acceptance check, POST a webhook with `reply_url` set to `https://<mock-domain>/reply`, wait for `draft_ready`, open the operator URL, approve exactly one ticket, then inspect `https://<mock-domain>/deliveries`. Remove the mock public domain after testing if public ledger access is not intended.
+   For the open reviewer demo, the operator URL requires no credentials. If Basic Auth is enabled instead, use HTTPS and the configured credentials.
+8. Verified live behavior:
+   - `GET /health` returns `HTTP 200 OK`.
+   - `POST /webhooks/helpdesk` validates payload and returns `HTTP 200 {"status":"accepted"}` within milliseconds.
+   - Sequential duplicate deliveries with the same `event_id` return the same `HTTP 200` without creating a duplicate ticket.
+   - The embedded worker retrieves knowledge base articles, generates a cited draft, and the ticket appears at `https://crud-production-a698.up.railway.app/operator/moderation` in `draft_ready` status.
 
 Railway's documented [public networking](https://docs.railway.com/networking/public-networking) provides a Railway domain and managed TLS. Railway variables are managed in the service's **Variables** page; see [Using Variables](https://docs.railway.com/variables) and [PostgreSQL connections](https://docs.railway.com/databases/postgresql).
 
