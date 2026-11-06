@@ -19,7 +19,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _DEFAULT_TEST_DATABASE_URL = URL.create(
     "postgresql+asyncpg",
     username=os.getenv("POSTGRES_USER", "helpdesk"),
-    password=os.getenv("POSTGRES_PASSWORD", "helpdesk_dev"),
+    password=os.getenv("POSTGRES_PASSWORD", "change-me-local-only"),
     host="localhost",
     port=int(os.getenv("POSTGRES_PORT", "5432")),
     database=os.getenv("TEST_DATABASE_NAME", "helpdesk_test"),
